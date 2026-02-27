@@ -52,6 +52,7 @@ async def main():
         print(f"  Workflow: {recall.workflow.description}")
         print(f"  Steps: {recall.workflow.total_steps}")
         print(f"  Overview: {recall.workflow.overview[:200]}...")
+        print(f"  Skeleton:\n{recall.workflow.skeleton}")
 
     # 2. Create callback handler — this is the only integration point
     handler = MyelinCallbackHandler(client=myelin, session_id=recall.session_id)
