@@ -47,6 +47,11 @@ async def main():
     # 1. Initialize Myelin
     myelin = MyelinClient(api_key=os.environ["MYELIN_API_KEY"])
     recall = await myelin.recall("handle a password reset support ticket")
+    print(f"Recall: session={recall.session_id}, matched={recall.matched}")
+    if recall.matched:
+        print(f"  Workflow: {recall.workflow.description}")
+        print(f"  Steps: {recall.workflow.total_steps}")
+        print(f"  Overview: {recall.workflow.overview[:200]}...")
 
     # 2. Create callback handler — this is the only integration point
     handler = MyelinCallbackHandler(client=myelin, session_id=recall.session_id)
