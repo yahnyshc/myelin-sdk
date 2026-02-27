@@ -56,16 +56,22 @@ async def main():
     agent = llm.bind_tools([lookup_user, reset_password, send_reply])
 
     # 4. Run the agent with the callback
-    from langchain_core.messages import HumanMessage
+    from langchain_core.messages import HumanMessage, SystemMessage
 
-    messages = [
+    messages = []
+
+    # If Myelin found a matching workflow, give the agent its guidance
+    if recall.matched:
+        messages.append(SystemMessage(content=recall.workflow.overview))
+
+    messages.append(
         HumanMessage(
             content=(
                 "Ticket #1234: Customer alice@example.com says they can't log in. "
                 "Please reset their password and let them know."
             )
         )
-    ]
+    )
 
     # Agent loop — invoke until no more tool calls
     while True:
