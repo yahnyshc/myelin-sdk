@@ -78,7 +78,7 @@ async def main():
         # Execute tool calls
         for tc in response.tool_calls:
             tool_fn = {"lookup_user": lookup_user, "reset_password": reset_password, "send_reply": send_reply}[tc["name"]]
-            result = await tool_fn.ainvoke(tc["args"])
+            result = await tool_fn.ainvoke(tc["args"], config={"callbacks": [handler]})
             from langchain_core.messages import ToolMessage
             messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
 

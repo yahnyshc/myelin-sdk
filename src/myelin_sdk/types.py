@@ -26,6 +26,7 @@ class DebriefResponse(BaseModel):
     tool_calls_recorded: int
     status: str
     workflow_id: str | None = None
+    warning: str | None = None
 
 
 class HintResponse(BaseModel):
