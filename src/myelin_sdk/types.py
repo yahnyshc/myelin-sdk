@@ -9,6 +9,7 @@ class WorkflowInfo(BaseModel):
     total_steps: int
     overview: str
     skeleton: str
+    steps: list[str] = []
 
 
 class RecallResponse(BaseModel):
