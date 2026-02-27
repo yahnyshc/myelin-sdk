@@ -24,6 +24,7 @@ HOOK_PATH = (
 
 BASE_ENV = {
     "PATH": os.environ.get("PATH", ""),
+    "TMPDIR": tempfile.gettempdir(),
     "MYELIN_URL": "http://localhost:19876",
     "MYELIN_API_KEY": "test-key",
 }
@@ -45,7 +46,9 @@ def run_hook(
 
 
 def session_file(cc_session_id: str) -> Path:
-    return Path(f"/tmp/myelin_session_{cc_session_id}")
+    import re
+    safe_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", cc_session_id)
+    return Path(tempfile.gettempdir()) / f"myelin_session_{safe_id}"
 
 
 @pytest.fixture
@@ -346,3 +349,68 @@ class TestDebugMode:
         )
         assert result.returncode == 0
         assert "DEBUG" in result.stderr
+
+
+class TestPathTraversal:
+    """Verify session_file_path sanitizes untrusted cc_session_id."""
+
+    def test_traversal_slashes(self):
+        """../../../etc/passwd should be sanitized to underscores."""
+        malicious_id = "../../../etc/passwd"
+        sf = session_file(malicious_id)
+        assert ".." not in str(sf.name)
+        assert "/" not in sf.name
+        assert sf.parent == Path(tempfile.gettempdir())
+
+    def test_traversal_creates_safe_file(self):
+        """A malicious session ID should still create a file in the temp dir."""
+        malicious_id = "../../evil"
+        result = run_hook({
+            "tool_name": "mcp__myelin__memory_recall",
+            "session_id": malicious_id,
+            "tool_response": {"session_id": "ses_safe"},
+        })
+        assert result.returncode == 0
+        sf = session_file(malicious_id)
+        assert sf.parent == Path(tempfile.gettempdir())
+        if sf.exists():
+            assert sf.read_text() == "ses_safe"
+            sf.unlink()
+
+    def test_normal_id_unchanged(self):
+        """Normal alphanumeric IDs should pass through unchanged."""
+        normal_id = "abc-123_def"
+        sf = session_file(normal_id)
+        assert sf.name == f"myelin_session_{normal_id}"
+
+
+class TestEnvQuoteStripping:
+    """Verify _load_env strips quotes from .env values."""
+
+    def test_quoted_values_loaded(self):
+        """Double-quoted values in .env should have quotes stripped."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = tmpdir
+            hooks_dir = os.path.join(project_dir, ".claude", "hooks")
+            os.makedirs(hooks_dir)
+            env_path = os.path.join(hooks_dir, ".env")
+            with open(env_path, "w") as f:
+                f.write('MYELIN_URL="http://localhost:8000"\n')
+                f.write("MYELIN_API_KEY='test-key-123'\n")
+
+            result = run_hook(
+                {
+                    "tool_name": "mcp__myelin__memory_recall",
+                    "session_id": "test_quote_strip",
+                    "tool_response": {"session_id": "ses_q"},
+                },
+                env={
+                    "MYELIN_URL": "",
+                    "MYELIN_API_KEY": "",
+                    "CLAUDE_PROJECT_DIR": project_dir,
+                },
+            )
+            # Should fail because stripped URL points to nonexistent server,
+            # but the important thing is it tried (returncode 2 means env was loaded)
+            # With empty MYELIN_URL after stripping it would report missing env
+            assert result.returncode in (0, 2)

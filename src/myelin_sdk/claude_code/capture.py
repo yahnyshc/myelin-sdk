@@ -8,7 +8,9 @@ Python stdlib so it works without installing the myelin package.
 
 import json
 import os
+import re
 import sys
+import tempfile
 import time
 import urllib.request
 import urllib.error
@@ -45,8 +47,12 @@ def debug(msg: str) -> None:
         log(f"DEBUG: {msg}")
 
 
+_SAFE_ID = re.compile(r"[^a-zA-Z0-9_\-]")
+
+
 def session_file_path(cc_session_id: str) -> str:
-    return f"/tmp/myelin_session_{cc_session_id}"
+    safe_id = _SAFE_ID.sub("_", cc_session_id)
+    return os.path.join(tempfile.gettempdir(), f"myelin_session_{safe_id}")
 
 
 def extract_reasoning_from_transcript(transcript_path: str, tool_use_id: str) -> str | None:
@@ -244,6 +250,8 @@ def _load_env() -> None:
                 key, _, value = line.partition("=")
                 key = key.strip()
                 value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                    value = value[1:-1]
                 if key and not os.environ.get(key):
                     os.environ[key] = value
         debug(f"loaded env from {env_path}")
