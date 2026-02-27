@@ -1,0 +1,115 @@
+"""ReAct research agent that learns from experience.
+
+A research agent with web search and note-taking tools. Over multiple
+runs, Myelin extracts workflows from successful research sessions
+so the agent gets better at structured research over time.
+
+Uses LangGraph's prebuilt ReAct agent for a production-ready setup.
+
+Usage:
+    export MYELIN_API_KEY=my_...
+    export OPENAI_API_KEY=sk-...
+    pip install langgraph langchain-openai
+    python react_research_agent.py
+"""
+
+import asyncio
+import os
+
+from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+
+from myelin_sdk import MyelinClient, MyelinSession
+from myelin_sdk.langchain import MyelinCallbackHandler
+
+
+# --- Tools ---
+
+_notes: list[str] = []
+
+
+@tool
+def web_search(query: str) -> str:
+    """Search the web for information."""
+    # Replace with a real search tool (e.g., Tavily, SerpAPI)
+    return (
+        f'Results for "{query}":\n'
+        "1. Myelin is a procedural memory system for AI agents\n"
+        "2. It uses MCP protocol for tool integration\n"
+        "3. Workflows are extracted from successful agent sessions\n"
+    )
+
+
+@tool
+def read_url(url: str) -> str:
+    """Read the contents of a URL."""
+    return f"Content from {url}: This is a mock response. Replace with real HTTP fetch."
+
+
+@tool
+def take_note(content: str) -> str:
+    """Save a research note for the final report."""
+    _notes.append(content)
+    return f"Note saved ({len(_notes)} total)"
+
+
+@tool
+def write_report(title: str, sections: str) -> str:
+    """Write the final research report. Sections should be newline-separated."""
+    notes_text = "\n".join(f"- {n}" for n in _notes) if _notes else "(no notes)"
+    return (
+        f"# {title}\n\n"
+        f"## Research Notes\n{notes_text}\n\n"
+        f"## Report\n{sections}"
+    )
+
+
+async def main():
+    task = "research how procedural memory differs from semantic memory in AI agents"
+
+    # 1. Start Myelin session
+    myelin = MyelinClient(api_key=os.environ["MYELIN_API_KEY"])
+    recall = await myelin.recall(task)
+    session = MyelinSession(myelin, recall)
+
+    if session.matched:
+        print(f"Following workflow: {session.workflow.description}")
+        print(f"Steps: {session.workflow.skeleton}\n")
+    else:
+        print("No existing workflow — pioneering a new research approach\n")
+
+    # 2. Create the agent with Myelin callback
+    handler = MyelinCallbackHandler(client=myelin, session_id=session.session_id)
+    llm = ChatOpenAI(model="gpt-4o-mini")
+
+    agent = create_react_agent(
+        llm,
+        tools=[web_search, read_url, take_note, write_report],
+    )
+
+    # 3. Run
+    result = await agent.ainvoke(
+        {"messages": [{"role": "user", "content": task}]},
+        config={"callbacks": [handler]},
+    )
+
+    # Print final message
+    final = result["messages"][-1]
+    print(f"Agent: {final.content}\n")
+
+    # 4. Debrief
+    debrief = await session.debrief()
+    print(f"Recorded {debrief.tool_calls_recorded} tool calls")
+    if debrief.workflow_id:
+        print(f"Workflow extracted: {debrief.workflow_id}")
+    print(
+        "\nNext time this task is run, Myelin may return a proven workflow "
+        "so the agent follows a structured research approach."
+    )
+
+    await myelin.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
