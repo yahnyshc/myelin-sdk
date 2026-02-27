@@ -4,15 +4,23 @@ import time
 
 import httpx
 
+from importlib.metadata import version as _pkg_version
+
 from .types import CaptureResponse, DebriefResponse, HintResponse, RecallResponse
+
+_VERSION = _pkg_version("myelin-sdk")
 
 
 class MyelinClient:
     def __init__(self, api_key: str, base_url: str = "https://myelin.fly.dev"):
         self._http = httpx.AsyncClient(
             base_url=base_url,
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "User-Agent": f"myelin-sdk/{_VERSION}",
+            },
             timeout=30.0,
+            limits=httpx.Limits(max_keepalive_connections=0),
         )
 
     async def recall(

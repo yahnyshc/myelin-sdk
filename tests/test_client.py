@@ -1,7 +1,5 @@
 """Tests for MyelinClient."""
 
-import json
-
 import httpx
 import pytest
 

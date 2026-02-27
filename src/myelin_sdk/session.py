@@ -1,7 +1,7 @@
 """Session state wrapper for Myelin interactions."""
 
 from .client import MyelinClient
-from .types import CaptureResponse, DebriefResponse, HintResponse, RecallResponse
+from .types import CaptureResponse, DebriefResponse, HintResponse, RecallResponse, WorkflowInfo
 
 
 class MyelinSession:
@@ -19,7 +19,7 @@ class MyelinSession:
         return self._recall.matched
 
     @property
-    def workflow(self):
+    def workflow(self) -> WorkflowInfo | None:
         return self._recall.workflow
 
     async def capture(
