@@ -28,9 +28,6 @@ Issues = "https://github.com/yahnyshc/myelin-sdk/issues"
 [project.optional-dependencies]
 langchain = ["langchain-core>=0.3.0"]
 
-[project.scripts]
-myelin-init = "myelin_sdk.claude_code.setup:init"
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/myelin_sdk"]
 

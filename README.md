@@ -6,12 +6,53 @@ Procedural memory for AI agents. Agents that have done a task 100 times shouldn'
 
 Zero-code integration via PostToolUse hooks.
 
+### 1. Install the SDK
+
 ```bash
 pip install myelin-sdk
-myelin-init
 ```
 
-That's it. The hook captures every tool call automatically. Use `memory.recall` and `memory.finish` MCP tools to start and end sessions.
+### 2. Add the MCP server
+
+```bash
+claude mcp add --scope project --transport http myelin https://myelin.fly.dev/mcp \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+### 3. Add the PostToolUse hook
+
+Add this to `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -m myelin_sdk.claude_code"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 4. Create `.claude/hooks/.env`
+
+```
+MYELIN_URL=https://myelin.fly.dev
+MYELIN_API_KEY=YOUR_API_KEY
+```
+
+### 5. Update `.gitignore`
+
+Add `.mcp.json` and `.claude/hooks/.env` to your `.gitignore`.
+
+The hook captures every tool call automatically. Use `memory.recall` and `memory.finish` MCP tools to start and end sessions.
 
 ## Python SDK / LangChain
 
