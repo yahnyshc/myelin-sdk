@@ -108,6 +108,23 @@ class MyelinSession:
     async def hint(self, step_number: int) -> HintResponse:
         return await self._client.hint(self.session_id, step_number)
 
+    def langchain_handler(
+        self,
+        *,
+        hide_inputs: Callable | None = None,
+        hide_outputs: Callable | None = None,
+        redaction: RedactionConfig | None = None,
+    ):
+        from .integrations.langchain.handler import MyelinCallbackHandler
+
+        return MyelinCallbackHandler(
+            client=self._client,
+            session_id=self.session_id,
+            hide_inputs=hide_inputs,
+            hide_outputs=hide_outputs,
+            redaction=redaction,
+        )
+
     def callback(
         self,
         *,
@@ -115,11 +132,15 @@ class MyelinSession:
         hide_outputs: Callable | None = None,
         redaction: RedactionConfig | None = None,
     ):
-        from .langchain.handler import MyelinCallbackHandler
+        """Deprecated: use ``langchain_handler()`` instead."""
+        import warnings
 
-        return MyelinCallbackHandler(
-            client=self._client,
-            session_id=self.session_id,
+        warnings.warn(
+            "callback() is deprecated, use langchain_handler() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.langchain_handler(
             hide_inputs=hide_inputs,
             hide_outputs=hide_outputs,
             redaction=redaction,

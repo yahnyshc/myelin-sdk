@@ -206,12 +206,12 @@ class TestContextManager:
             pass
 
 
-class TestCallback:
+class TestLangchainHandler:
     def test_returns_handler(self, mock_client, recall_hit, patch_langchain):
-        from myelin_sdk.langchain.handler import MyelinCallbackHandler
+        from myelin_sdk.integrations.langchain.handler import MyelinCallbackHandler
 
         session = MyelinSession(mock_client, recall_hit)
-        handler = session.callback()
+        handler = session.langchain_handler()
         assert isinstance(handler, MyelinCallbackHandler)
         assert handler._session_id == recall_hit.session_id
         assert handler._client is mock_client
@@ -220,9 +220,21 @@ class TestCallback:
         hide_in = lambda d: d
         hide_out = lambda s: s
         session = MyelinSession(mock_client, recall_hit)
-        handler = session.callback(hide_inputs=hide_in, hide_outputs=hide_out)
+        handler = session.langchain_handler(hide_inputs=hide_in, hide_outputs=hide_out)
         assert handler._hide_inputs is hide_in
         assert handler._hide_outputs is hide_out
+
+    def test_callback_deprecation_warning(self, mock_client, recall_hit, patch_langchain):
+        session = MyelinSession(mock_client, recall_hit)
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            handler = session.callback()
+            assert len(w) == 1
+            assert issubclass(w[0].category, DeprecationWarning)
+            assert "langchain_handler" in str(w[0].message)
+        assert handler._session_id == recall_hit.session_id
 
 
 class TestSteps:

@@ -14,9 +14,9 @@ except ImportError:
         "Install langchain support: pip install myelin-sdk[langchain]"
     )
 
-from .._utils import truncate
-from ..client import MyelinClient
-from ..redact import RedactionConfig, redact_dict, redact_string
+from ..._utils import truncate
+from ...client import MyelinClient
+from ...redact import RedactionConfig, redact_dict, redact_string
 
 logger = logging.getLogger(__name__)
 

@@ -72,7 +72,7 @@ async def main():
     )
 
     async with MyelinSession.start("handle a billing credit request") as session:
-        handler = session.callback()
+        handler = session.langchain_handler()
         llm = ChatOpenAI(model="gpt-4o-mini")
 
         if session.matched:

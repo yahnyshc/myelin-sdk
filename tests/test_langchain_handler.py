@@ -23,7 +23,7 @@ def _patch_langchain(patch_langchain):
 
 
 def _make_handler(client=None, session_id="ses_test", **kwargs):
-    from myelin_sdk.langchain.handler import MyelinCallbackHandler
+    from myelin_sdk.integrations.langchain.handler import MyelinCallbackHandler
 
     if client is None:
         client = AsyncMock()

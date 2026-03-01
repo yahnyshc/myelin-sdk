@@ -49,7 +49,7 @@ async def main():
             print(f"  Steps: {session.workflow.total_steps}")
 
         # Create callback handler — this is the only integration point
-        handler = session.callback()
+        handler = session.langchain_handler()
 
         # Build your agent as usual, just pass the handler
         llm = ChatOpenAI(model="gpt-4o-mini")

@@ -29,5 +29,5 @@ def patch_langchain(monkeypatch):
 
     # Force reimport of handler module so it picks up our mocks
     for mod_name in list(sys.modules):
-        if "myelin_sdk.langchain" in mod_name:
+        if "myelin_sdk.integrations.langchain" in mod_name:
             monkeypatch.delitem(sys.modules, mod_name)

@@ -73,7 +73,7 @@ async def main():
         else:
             print("No existing workflow — pioneering a new research approach\n")
 
-        handler = session.callback()
+        handler = session.langchain_handler()
         llm = ChatOpenAI(model="gpt-4o-mini")
 
         agent = create_react_agent(
