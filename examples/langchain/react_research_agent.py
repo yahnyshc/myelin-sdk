@@ -66,7 +66,7 @@ def write_report(title: str, sections: str) -> str:
 async def main():
     task = "research how procedural memory differs from semantic memory in AI agents"
 
-    async with await MyelinSession.start(task) as session:
+    async with MyelinSession.start(task) as session:
         if session.matched:
             print(f"Following workflow: {session.workflow.description}")
             print(f"Steps: {session.workflow.skeleton}\n")

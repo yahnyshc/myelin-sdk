@@ -42,7 +42,7 @@ def send_reply(ticket_id: str, message: str) -> str:
 
 
 async def main():
-    async with await MyelinSession.start("handle a password reset support ticket") as session:
+    async with MyelinSession.start("handle a password reset support ticket") as session:
         print(f"Recall: session={session.session_id}, matched={session.matched}")
         if session.matched:
             print(f"  Workflow: {session.workflow.description}")

@@ -34,3 +34,8 @@ class HintResponse(BaseModel):
     session_id: str
     step_number: int
     detail: str
+
+
+class HintsResponse(BaseModel):
+    session_id: str
+    hints: dict[int, str]

@@ -133,6 +133,20 @@ class TestHint:
         await client.close()
 
 
+class TestHints:
+    async def test_hints(self):
+        client = _client_with([{
+            "json": {
+                "session_id": "ses_1",
+                "hints": {"1": "Do first thing", "2": "Do second thing"},
+            },
+        }])
+        resp = await client.hints("ses_1")
+        assert resp.session_id == "ses_1"
+        assert resp.hints == {1: "Do first thing", 2: "Do second thing"}
+        await client.close()
+
+
 class TestRedaction:
     async def test_default_redaction_applied(self):
         """Client applies redaction to tool_input and tool_response by default."""

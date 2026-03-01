@@ -71,7 +71,7 @@ async def main():
         "Please apply a $49 credit and let them know."
     )
 
-    async with await MyelinSession.start("handle a billing credit request") as session:
+    async with MyelinSession.start("handle a billing credit request") as session:
         handler = session.callback()
         llm = ChatOpenAI(model="gpt-4o-mini")
 

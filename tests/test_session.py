@@ -9,6 +9,7 @@ from myelin_sdk.types import (
     CaptureResponse,
     DebriefResponse,
     HintResponse,
+    HintsResponse,
     RecallResponse,
     WorkflowInfo,
 )
@@ -23,6 +24,9 @@ def mock_client():
     )
     client.hint.return_value = HintResponse(
         session_id="ses_1", step_number=1, detail="Do the thing"
+    )
+    client.hints.return_value = HintsResponse(
+        session_id="ses_1", hints={1: "First", 2: "Second"}
     )
     return client
 
@@ -156,6 +160,17 @@ class TestStart:
         with pytest.raises(ValueError, match="api_key required"):
             await MyelinSession.start("task")
 
+    async def test_context_manager_without_await(self):
+        """async with MyelinSession.start(...) as session: — no await needed."""
+        mock_client = AsyncMock()
+        recall = RecallResponse(session_id="ses_cm", matched=False)
+        mock_client.recall.return_value = recall
+
+        with patch("myelin_sdk.session.MyelinClient", return_value=mock_client):
+            async with MyelinSession.start("task", api_key="key") as session:
+                assert session.session_id == "ses_cm"
+        mock_client.debrief.assert_awaited_once()
+
 
 class TestContextManager:
     async def test_auto_debrief_on_exit(self, mock_client, recall_hit):
@@ -212,26 +227,20 @@ class TestCallback:
 
 class TestSteps:
     async def test_yields_tuples_on_hit(self, mock_client, recall_hit):
-        mock_client.hint.side_effect = [
-            HintResponse(session_id="ses_1", step_number=1, detail="First"),
-            HintResponse(session_id="ses_1", step_number=2, detail="Second"),
-        ]
         session = MyelinSession(mock_client, recall_hit)
         result = [(n, d) async for n, d in session.steps()]
         assert result == [(1, "First"), (2, "Second")]
+        mock_client.hints.assert_awaited_once_with("ses_1")
 
     async def test_empty_on_miss(self, mock_client, recall_miss):
         session = MyelinSession(mock_client, recall_miss)
         result = [(n, d) async for n, d in session.steps()]
         assert result == []
+        mock_client.hints.assert_not_awaited()
 
 
 class TestBuildSystemPrompt:
     async def test_returns_prompt_on_hit(self, mock_client, recall_hit):
-        mock_client.hint.side_effect = [
-            HintResponse(session_id="ses_1", step_number=1, detail="First"),
-            HintResponse(session_id="ses_1", step_number=2, detail="Second"),
-        ]
         session = MyelinSession(mock_client, recall_hit)
         prompt = await session.build_system_prompt()
         assert prompt is not None
@@ -246,10 +255,6 @@ class TestBuildSystemPrompt:
         assert prompt is None
 
     async def test_prepends_preamble(self, mock_client, recall_hit):
-        mock_client.hint.side_effect = [
-            HintResponse(session_id="ses_1", step_number=1, detail="First"),
-            HintResponse(session_id="ses_1", step_number=2, detail="Second"),
-        ]
         session = MyelinSession(mock_client, recall_hit)
         prompt = await session.build_system_prompt(preamble="You are a helper.")
         assert prompt.startswith("You are a helper.")

@@ -10,6 +10,7 @@ from .types import (
     CaptureResponse,
     DebriefResponse,
     HintResponse,
+    HintsResponse,
     RecallResponse,
     WorkflowInfo,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "CaptureResponse",
     "DebriefResponse",
     "HintResponse",
+    "HintsResponse",
     "RecallResponse",
     "WorkflowInfo",
     "__version__",

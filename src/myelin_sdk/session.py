@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Coroutine
 from typing import TYPE_CHECKING
 
 from .client import MyelinClient
@@ -11,7 +11,32 @@ from .redact import RedactionConfig
 from .types import CaptureResponse, DebriefResponse, HintResponse, RecallResponse, WorkflowInfo
 
 if TYPE_CHECKING:
-    from typing import Callable
+    from typing import Any, Callable
+
+
+class _SessionStarter:
+    """Returned by ``MyelinSession.start()`` to support both patterns:
+
+    - ``session = await MyelinSession.start(...)``
+    - ``async with MyelinSession.start(...) as session:``
+    """
+
+    __slots__ = ("_coro", "_session")
+
+    def __init__(self, coro: Coroutine[Any, Any, MyelinSession]):
+        self._coro = coro
+        self._session: MyelinSession | None = None
+
+    def __await__(self):
+        return self._coro.__await__()
+
+    async def __aenter__(self) -> MyelinSession:
+        self._session = await self._coro
+        return self._session
+
+    async def __aexit__(self, *exc: Any) -> None:
+        assert self._session is not None
+        await self._session.__aexit__(*exc)
 
 
 class MyelinSession:
@@ -28,7 +53,7 @@ class MyelinSession:
         self._owns_client = _owns_client
 
     @classmethod
-    async def start(
+    def start(
         cls,
         task: str,
         *,
@@ -36,13 +61,16 @@ class MyelinSession:
         base_url: str = "https://myelin.fly.dev",
         agent_id: str = "default",
         redaction: RedactionConfig | None = None,
-    ) -> MyelinSession:
-        key = api_key or os.environ.get("MYELIN_API_KEY")
-        if not key:
-            raise ValueError("api_key required (pass it or set MYELIN_API_KEY)")
-        client = MyelinClient(api_key=key, base_url=base_url, redaction=redaction)
-        recall = await client.recall(task, agent_id=agent_id)
-        return cls(client, recall, _owns_client=True)
+    ) -> _SessionStarter:
+        async def _create() -> MyelinSession:
+            key = api_key or os.environ.get("MYELIN_API_KEY")
+            if not key:
+                raise ValueError("api_key required (pass it or set MYELIN_API_KEY)")
+            client = MyelinClient(api_key=key, base_url=base_url, redaction=redaction)
+            recall = await client.recall(task, agent_id=agent_id)
+            return cls(client, recall, _owns_client=True)
+
+        return _SessionStarter(_create())
 
     @property
     def session_id(self) -> str:
@@ -100,9 +128,9 @@ class MyelinSession:
     async def steps(self) -> AsyncIterator[tuple[int, str]]:
         if not self.matched or not self.workflow:
             return
-        for i in range(1, self.workflow.total_steps + 1):
-            h = await self.hint(i)
-            yield i, h.detail
+        resp = await self._client.hints(self.session_id)
+        for step_num in sorted(resp.hints):
+            yield step_num, resp.hints[step_num]
 
     async def build_system_prompt(self, *, preamble: str = "") -> str | None:
         if not self.matched or not self.workflow:
