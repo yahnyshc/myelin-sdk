@@ -238,7 +238,7 @@ def extract_session_id(tool_response):
 
 
 def _load_env() -> None:
-    """Load .claude/hooks/.env if it exists and env vars aren't already set."""
+    """Derive MYELIN_URL and MYELIN_API_KEY from .mcp.json if not already set."""
     global _ENV_LOADED
     if _ENV_LOADED:
         return
@@ -251,23 +251,33 @@ def _load_env() -> None:
     if not project_dir:
         return
 
-    env_path = os.path.join(project_dir, ".claude", "hooks", ".env")
+    mcp_path = os.path.join(project_dir, ".mcp.json")
     try:
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip()
-                if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-                    value = value[1:-1]
-                if key and not os.environ.get(key):
-                    os.environ[key] = value
-        debug(f"loaded env from {env_path}")
-    except FileNotFoundError:
-        pass
+        with open(mcp_path) as f:
+            config = json.loads(f.read())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return
+
+    server = config.get("mcpServers", {}).get("myelin")
+    if not isinstance(server, dict):
+        return
+
+    # Derive MYELIN_URL from the MCP server URL (strip /mcp suffix)
+    url = server.get("url", "")
+    if url and not os.environ.get("MYELIN_URL"):
+        base_url = url.removesuffix("/mcp")
+        os.environ["MYELIN_URL"] = base_url
+
+    # Extract API key from Authorization header
+    auth = server.get("headers", {}).get("Authorization", "")
+    if auth and not os.environ.get("MYELIN_API_KEY"):
+        # "Bearer <key>" -> "<key>"
+        key = auth.removeprefix("Bearer ").strip()
+        if key:
+            os.environ["MYELIN_API_KEY"] = key
+
+    if os.environ.get("MYELIN_URL") and os.environ.get("MYELIN_API_KEY"):
+        debug(f"loaded credentials from {mcp_path}")
 
 
 def _load_redaction_config() -> RedactionConfig | None:

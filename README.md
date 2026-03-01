@@ -41,16 +41,9 @@ Add this to `.claude/settings.json`:
 }
 ```
 
-### 4. Create `.claude/hooks/.env`
+### 4. Update `.gitignore`
 
-```
-MYELIN_URL=https://myelin.fly.dev
-MYELIN_API_KEY=YOUR_API_KEY
-```
-
-### 5. Update `.gitignore`
-
-Add `.mcp.json` and `.claude/hooks/.env` to your `.gitignore`.
+Add `.mcp.json` to your `.gitignore` (it contains your API key).
 
 The hook captures every tool call automatically. Use `memory.recall` and `memory.finish` MCP tools to start and end sessions.
 

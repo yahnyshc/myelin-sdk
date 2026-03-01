@@ -523,36 +523,91 @@ class TestPathTraversal:
         assert sf.name == normal_id
 
 
-class TestEnvQuoteStripping:
-    """Verify _load_env strips quotes from .env values."""
+class TestMcpJsonLoading:
+    """Verify _load_env reads credentials from .mcp.json."""
 
-    def test_quoted_values_loaded(self):
-        """Double-quoted values in .env should have quotes stripped."""
+    def test_loads_from_mcp_json(self):
+        """Credentials are derived from .mcp.json when env vars are empty."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            project_dir = tmpdir
-            hooks_dir = os.path.join(project_dir, ".claude", "hooks")
-            os.makedirs(hooks_dir)
-            env_path = os.path.join(hooks_dir, ".env")
-            with open(env_path, "w") as f:
-                f.write('MYELIN_URL="http://localhost:8000"\n')
-                f.write("MYELIN_API_KEY='test-key-123'\n")
+            mcp_config = {
+                "mcpServers": {
+                    "myelin": {
+                        "type": "http",
+                        "url": "http://localhost:19876/mcp",
+                        "headers": {
+                            "Authorization": "Bearer test-key-from-mcp",
+                        },
+                    }
+                }
+            }
+            mcp_path = os.path.join(tmpdir, ".mcp.json")
+            with open(mcp_path, "w") as f:
+                json.dump(mcp_config, f)
 
             result = run_hook(
                 {
                     "tool_name": "mcp__myelin__memory_recall",
-                    "session_id": "test_quote_strip",
-                    "tool_response": {"session_id": "ses_q"},
+                    "session_id": "test_mcp_load",
+                    "tool_response": {"session_id": "ses_mcp"},
                 },
-                project_dir,
+                tmpdir,
                 env={
                     "MYELIN_URL": "",
                     "MYELIN_API_KEY": "",
                 },
             )
-            # Should fail because stripped URL points to nonexistent server,
-            # but the important thing is it tried (returncode 2 means env was loaded)
-            # With empty MYELIN_URL after stripping it would report missing env
-            assert result.returncode in (0, 2)
+            assert result.returncode == 0
+            sf = session_file(tmpdir, "test_mcp_load")
+            assert sf.exists()
+            assert sf.read_text() == "ses_mcp"
+
+    def test_env_vars_take_precedence(self):
+        """Explicit env vars are used even when .mcp.json exists."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mcp_config = {
+                "mcpServers": {
+                    "myelin": {
+                        "type": "http",
+                        "url": "http://wrong-host/mcp",
+                        "headers": {
+                            "Authorization": "Bearer wrong-key",
+                        },
+                    }
+                }
+            }
+            mcp_path = os.path.join(tmpdir, ".mcp.json")
+            with open(mcp_path, "w") as f:
+                json.dump(mcp_config, f)
+
+            # Explicit env vars should win
+            result = run_hook(
+                {
+                    "tool_name": "mcp__myelin__memory_recall",
+                    "session_id": "test_env_precedence",
+                    "tool_response": {"session_id": "ses_env"},
+                },
+                tmpdir,
+                # _COMMON_ENV already sets MYELIN_URL/MYELIN_API_KEY
+            )
+            assert result.returncode == 0
+
+    def test_missing_mcp_json_graceful(self):
+        """No .mcp.json and no env vars → missing env error on recall."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run_hook(
+                {
+                    "tool_name": "mcp__myelin__memory_recall",
+                    "session_id": "test_no_mcp",
+                    "tool_response": {"session_id": "ses_none"},
+                },
+                tmpdir,
+                env={
+                    "MYELIN_URL": "",
+                    "MYELIN_API_KEY": "",
+                },
+            )
+            assert result.returncode == 2
+            assert "MYELIN_URL" in result.stderr
 
 
 class TestStaleCleanup:
