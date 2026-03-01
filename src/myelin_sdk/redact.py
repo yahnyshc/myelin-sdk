@@ -193,11 +193,10 @@ class RedactionConfig:
         self,
         *,
         enabled: bool = True,
-        extra_patterns: list[dict] | None = None,
-        remove_patterns: list[str] | None = None,
+        additional_patterns: list[dict] | None = None,
+        additional_keys: list[str] | None = None,
         patterns: list[dict] | None = None,
         sensitive_keys: list[str] | None = None,
-        extra_sensitive_keys: list[str] | None = None,
         replacement: str = "[REDACTED]",
         redact_tool_input: bool = True,
         redact_tool_response: bool = True,
@@ -214,22 +213,16 @@ class RedactionConfig:
             self._sensitive_keys = {k.lower() for k in sensitive_keys}
         else:
             self._sensitive_keys = set(_DEFAULT_SENSITIVE_KEYS)
-        if extra_sensitive_keys:
-            self._sensitive_keys |= {k.lower() for k in extra_sensitive_keys}
+        if additional_keys:
+            self._sensitive_keys |= {k.lower() for k in additional_keys}
 
         # Build pattern list
         if patterns is not None:
-            # Full override
             raw_patterns = list(patterns)
         else:
             raw_patterns = list(BUILTIN_PATTERNS)
-            if remove_patterns:
-                remove_set = set(remove_patterns)
-                raw_patterns = [
-                    p for p in raw_patterns if p["name"] not in remove_set
-                ]
-            if extra_patterns:
-                raw_patterns.extend(extra_patterns)
+            if additional_patterns:
+                raw_patterns.extend(additional_patterns)
 
         self._patterns = raw_patterns
         self._compiled = _compile_patterns(raw_patterns)
@@ -239,11 +232,10 @@ class RedactionConfig:
         """Create config from a parsed dict (e.g. JSON file content)."""
         return cls(
             enabled=data.get("enabled", True),
-            extra_patterns=data.get("extra_patterns"),
-            remove_patterns=data.get("remove_patterns"),
+            additional_patterns=data.get("additional_patterns"),
+            additional_keys=data.get("additional_keys"),
             patterns=data.get("patterns"),
             sensitive_keys=data.get("sensitive_keys"),
-            extra_sensitive_keys=data.get("extra_sensitive_keys"),
             replacement=data.get("replacement", "[REDACTED]"),
             redact_tool_input=data.get("redact_tool_input", True),
             redact_tool_response=data.get("redact_tool_response", True),

@@ -254,7 +254,6 @@ class TestConfigFromFile:
         config_data = {
             "enabled": True,
             "replacement": "***",
-            "remove_patterns": ["jwt"],
         }
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False
@@ -267,9 +266,6 @@ class TestConfigFromFile:
             cfg = RedactionConfig.from_file(path)
             assert cfg.enabled is True
             assert cfg.replacement == "***"
-            # JWT should be removed
-            pattern_names = [n for n, _ in cfg._compiled]
-            assert "jwt" not in pattern_names
         finally:
             os.unlink(path)
 
@@ -321,20 +317,14 @@ class TestConfigFromEnv:
 
 
 class TestPatternCustomization:
-    def test_extra_patterns(self):
+    def test_additional_patterns(self):
         cfg = RedactionConfig(
-            extra_patterns=[
+            additional_patterns=[
                 {"name": "custom", "pattern": r"myco_[A-Za-z0-9]{16}"},
             ]
         )
         text = "key is myco_ABCDEFGH12345678"
         assert "[REDACTED]" in redact_string(text, cfg)
-
-    def test_remove_patterns(self):
-        cfg = RedactionConfig(remove_patterns=["jwt"])
-        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
-        # JWT should NOT be redacted since we removed the pattern
-        assert redact_string(jwt, cfg) == jwt
 
     def test_full_override_patterns(self):
         cfg = RedactionConfig(
@@ -348,8 +338,8 @@ class TestPatternCustomization:
         assert redact_string("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn", cfg) == \
             "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
 
-    def test_extra_sensitive_keys(self):
-        cfg = RedactionConfig(extra_sensitive_keys=["x-custom-auth"])
+    def test_additional_keys(self):
+        cfg = RedactionConfig(additional_keys=["x-custom-auth"])
         data = {"x-custom-auth": "my-secret", "name": "test"}
         result = redact_dict(data, cfg)
         assert result["x-custom-auth"] == "[REDACTED]"
@@ -447,10 +437,10 @@ class TestSensitiveKeysOverride:
         assert result["password"] == "secret"
         assert result["custom_key"] == "[REDACTED]"
 
-    def test_combines_with_extra(self):
+    def test_combines_with_additional(self):
         cfg = RedactionConfig(
             sensitive_keys=["custom_key"],
-            extra_sensitive_keys=["bonus"],
+            additional_keys=["bonus"],
         )
         assert cfg._sensitive_keys == {"custom_key", "bonus"}
 
