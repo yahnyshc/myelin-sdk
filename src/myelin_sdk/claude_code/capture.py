@@ -21,7 +21,7 @@ from myelin_sdk.redact import RedactionConfig, redact_dict, redact_string
 MYELIN_TOOL_PREFIX = "mcp__myelin__"
 _ENV_LOADED = False
 RECALL = f"{MYELIN_TOOL_PREFIX}memory_recall"
-DEBRIEF = f"{MYELIN_TOOL_PREFIX}memory_debrief"
+FINISH = f"{MYELIN_TOOL_PREFIX}memory_finish"
 CAPTURE_TIMEOUT = 5  # seconds
 CAPTURE_RETRIES = 2
 RETRY_DELAY = 1.0  # seconds
@@ -317,8 +317,8 @@ def main() -> int:
             debug(f"session started: {sid}")
         return 0
 
-    # 2. debrief — clean up
-    if tool_name == DEBRIEF:
+    # 2. finish — clean up
+    if tool_name == FINISH:
         if session_file:
             try:
                 os.remove(session_file)

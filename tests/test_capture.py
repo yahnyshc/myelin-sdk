@@ -185,14 +185,14 @@ class TestRecall:
         assert result.returncode == 0
 
 
-class TestDebrief:
+class TestFinish:
     def test_deletes_session_file(self, cc_session_id, project_dir):
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_todelete")
 
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_debrief",
+            "tool_name": "mcp__myelin__memory_finish",
             "session_id": cc_session_id,
         }, project_dir)
         assert result.returncode == 0
@@ -200,7 +200,7 @@ class TestDebrief:
 
     def test_missing_file_ok(self, cc_session_id, project_dir):
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_debrief",
+            "tool_name": "mcp__myelin__memory_finish",
             "session_id": cc_session_id,
         }, project_dir)
         assert result.returncode == 0

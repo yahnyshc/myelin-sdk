@@ -8,7 +8,7 @@ from .redact import (
 from .session import MyelinSession
 from .types import (
     CaptureResponse,
-    DebriefResponse,
+    FinishResponse,
     HintResponse,
     HintsResponse,
     RecallResponse,
@@ -23,7 +23,7 @@ __all__ = [
     "RedactionConfig",
     "build_default_redaction_dict",
     "CaptureResponse",
-    "DebriefResponse",
+    "FinishResponse",
     "HintResponse",
     "HintsResponse",
     "RecallResponse",

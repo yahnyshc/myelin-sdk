@@ -7,7 +7,7 @@ import pytest
 from myelin_sdk.session import MyelinSession
 from myelin_sdk.types import (
     CaptureResponse,
-    DebriefResponse,
+    FinishResponse,
     HintResponse,
     HintsResponse,
     RecallResponse,
@@ -19,7 +19,7 @@ from myelin_sdk.types import (
 def mock_client():
     client = AsyncMock()
     client.capture.return_value = CaptureResponse(status="ok")
-    client.debrief.return_value = DebriefResponse(
+    client.finish.return_value = FinishResponse(
         session_id="ses_1", tool_calls_recorded=3, status="evaluated"
     )
     client.hint.return_value = HintResponse(
@@ -92,26 +92,26 @@ class TestCapture:
             "ses_1", "Read", {"path": "/f"}, "data", "why", 100.0
         )
 
-    async def test_capture_after_debrief_raises(self, mock_client, recall_hit):
+    async def test_capture_after_finish_raises(self, mock_client, recall_hit):
         session = MyelinSession(mock_client, recall_hit)
-        await session.debrief()
-        with pytest.raises(RuntimeError, match="already debriefed"):
+        await session.finish()
+        with pytest.raises(RuntimeError, match="already finished"):
             await session.capture("Bash", {}, "out")
 
 
-class TestDebrief:
-    async def test_debrief_delegates(self, mock_client, recall_hit):
+class TestFinish:
+    async def test_finish_delegates(self, mock_client, recall_hit):
         session = MyelinSession(mock_client, recall_hit)
-        resp = await session.debrief()
+        resp = await session.finish()
         assert resp.status == "evaluated"
         assert resp.tool_calls_recorded == 3
-        mock_client.debrief.assert_awaited_once_with("ses_1")
+        mock_client.finish.assert_awaited_once_with("ses_1")
 
-    async def test_double_debrief_raises(self, mock_client, recall_hit):
+    async def test_double_finish_raises(self, mock_client, recall_hit):
         session = MyelinSession(mock_client, recall_hit)
-        await session.debrief()
-        with pytest.raises(RuntimeError, match="already debriefed"):
-            await session.debrief()
+        await session.finish()
+        with pytest.raises(RuntimeError, match="already finished"):
+            await session.finish()
 
 
 class TestHint:
@@ -121,10 +121,10 @@ class TestHint:
         assert resp.detail == "Do the thing"
         mock_client.hint.assert_awaited_once_with("ses_1", 1)
 
-    async def test_hint_works_after_debrief(self, mock_client, recall_hit):
-        """Hint should still work even after debrief (read-only)."""
+    async def test_hint_works_after_finish(self, mock_client, recall_hit):
+        """Hint should still work even after finish (read-only)."""
         session = MyelinSession(mock_client, recall_hit)
-        await session.debrief()
+        await session.finish()
         resp = await session.hint(1)
         assert resp.step_number == 1
 
@@ -169,22 +169,22 @@ class TestStart:
         with patch("myelin_sdk.session.MyelinClient", return_value=mock_client):
             async with MyelinSession.start("task", api_key="key") as session:
                 assert session.session_id == "ses_cm"
-        mock_client.debrief.assert_awaited_once()
+        mock_client.finish.assert_awaited_once()
 
 
 class TestContextManager:
-    async def test_auto_debrief_on_exit(self, mock_client, recall_hit):
+    async def test_auto_finish_on_exit(self, mock_client, recall_hit):
         session = MyelinSession(mock_client, recall_hit, _owns_client=False)
         async with session:
             pass
-        mock_client.debrief.assert_awaited_once_with("ses_1")
+        mock_client.finish.assert_awaited_once_with("ses_1")
 
-    async def test_skip_debrief_if_already_done(self, mock_client, recall_hit):
+    async def test_skip_finish_if_already_done(self, mock_client, recall_hit):
         session = MyelinSession(mock_client, recall_hit, _owns_client=False)
         async with session:
-            await session.debrief()
-        # debrief called once explicitly, not again on exit
-        mock_client.debrief.assert_awaited_once()
+            await session.finish()
+        # finish called once explicitly, not again on exit
+        mock_client.finish.assert_awaited_once()
 
     async def test_closes_owned_client(self, mock_client, recall_hit):
         session = MyelinSession(mock_client, recall_hit, _owns_client=True)
@@ -198,8 +198,8 @@ class TestContextManager:
             pass
         mock_client.close.assert_not_awaited()
 
-    async def test_auto_debrief_is_best_effort(self, mock_client, recall_hit):
-        mock_client.debrief.side_effect = RuntimeError("network error")
+    async def test_auto_finish_is_best_effort(self, mock_client, recall_hit):
+        mock_client.finish.side_effect = RuntimeError("network error")
         session = MyelinSession(mock_client, recall_hit, _owns_client=False)
         # Should not raise
         async with session:

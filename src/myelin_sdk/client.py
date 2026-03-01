@@ -7,7 +7,7 @@ import httpx
 from importlib.metadata import version as _pkg_version
 
 from .redact import RedactionConfig, get_default_config, redact_dict, redact_string
-from .types import CaptureResponse, DebriefResponse, HintResponse, HintsResponse, RecallResponse
+from .types import CaptureResponse, FinishResponse, HintResponse, HintsResponse, RecallResponse
 
 _VERSION = _pkg_version("myelin-sdk")
 
@@ -76,10 +76,10 @@ class MyelinClient:
         resp.raise_for_status()
         return CaptureResponse(**resp.json())
 
-    async def debrief(self, session_id: str) -> DebriefResponse:
-        resp = await self._http.post(f"/v1/sessions/{session_id}/debrief")
+    async def finish(self, session_id: str) -> FinishResponse:
+        resp = await self._http.post(f"/v1/sessions/{session_id}/finish")
         resp.raise_for_status()
-        return DebriefResponse(**resp.json())
+        return FinishResponse(**resp.json())
 
     async def hint(self, session_id: str, step_number: int) -> HintResponse:
         resp = await self._http.get(

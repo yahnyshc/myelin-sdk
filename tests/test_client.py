@@ -99,8 +99,8 @@ class TestCapture:
         await client.close()
 
 
-class TestDebrief:
-    async def test_debrief(self):
+class TestFinish:
+    async def test_finish(self):
         client = _client_with([{
             "json": {
                 "session_id": "ses_1",
@@ -109,7 +109,7 @@ class TestDebrief:
                 "workflow_id": "wf_new",
             },
         }])
-        resp = await client.debrief("ses_1")
+        resp = await client.finish("ses_1")
         assert resp.session_id == "ses_1"
         assert resp.tool_calls_recorded == 5
         assert resp.status == "evaluated"

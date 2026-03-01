@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from .client import MyelinClient
 from .redact import RedactionConfig
-from .types import CaptureResponse, DebriefResponse, HintResponse, RecallResponse, WorkflowInfo
+from .types import CaptureResponse, FinishResponse, HintResponse, RecallResponse, WorkflowInfo
 
 if TYPE_CHECKING:
     from typing import Any, Callable
@@ -93,15 +93,15 @@ class MyelinSession:
         client_ts: float | None = None,
     ) -> CaptureResponse:
         if not self._active:
-            raise RuntimeError("Session already debriefed")
+            raise RuntimeError("Session already finished")
         return await self._client.capture(
             self.session_id, tool_name, tool_input, tool_response, reasoning, client_ts
         )
 
-    async def debrief(self) -> DebriefResponse:
+    async def finish(self) -> FinishResponse:
         if not self._active:
-            raise RuntimeError("Session already debriefed")
-        result = await self._client.debrief(self.session_id)
+            raise RuntimeError("Session already finished")
+        result = await self._client.finish(self.session_id)
         self._active = False
         return result
 
@@ -152,7 +152,7 @@ class MyelinSession:
     async def __aexit__(self, *exc):
         if self._active:
             try:
-                await self.debrief()
+                await self.finish()
             except Exception:
                 pass
         if self._owns_client:

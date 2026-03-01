@@ -89,10 +89,10 @@ async def main():
         final = result["messages"][-1]
         print(f"Agent: {final.content}\n")
 
-        debrief = await session.debrief()
-        print(f"Recorded {debrief.tool_calls_recorded} tool calls")
-        if debrief.workflow_id:
-            print(f"Workflow extracted: {debrief.workflow_id}")
+        result = await session.finish()
+        print(f"Recorded {result.tool_calls_recorded} tool calls")
+        if result.workflow_id:
+            print(f"Workflow extracted: {result.workflow_id}")
         print(
             "\nNext time this task is run, Myelin may return a proven workflow "
             "so the agent follows a structured research approach."

@@ -86,7 +86,7 @@ async def main():
                 messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
 
         print(f"Agent response: {response.content}")
-    # Debrief happens automatically when the context manager exits
+    # Finish happens automatically when the context manager exits
 
 
 if __name__ == "__main__":

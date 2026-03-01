@@ -102,10 +102,10 @@ async def main():
         response = await run_agent(llm, messages, handler)
         print(f"Agent: {response}\n")
 
-        debrief = await session.debrief()
-        print(f"Recorded {debrief.tool_calls_recorded} tool calls")
-        if debrief.workflow_id:
-            print(f"New workflow extracted: {debrief.workflow_id}")
+        result = await session.finish()
+        print(f"Recorded {result.tool_calls_recorded} tool calls")
+        if result.workflow_id:
+            print(f"New workflow extracted: {result.workflow_id}")
 
 
 if __name__ == "__main__":

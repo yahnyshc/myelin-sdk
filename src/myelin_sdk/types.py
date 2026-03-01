@@ -22,7 +22,7 @@ class CaptureResponse(BaseModel):
     status: str
 
 
-class DebriefResponse(BaseModel):
+class FinishResponse(BaseModel):
     session_id: str
     tool_calls_recorded: int
     status: str
