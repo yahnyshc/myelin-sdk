@@ -1,10 +1,7 @@
 """CLI for Myelin setup commands."""
 
-import importlib.resources
 import json
 import os
-import shutil
-import stat
 import sys
 from pathlib import Path
 
@@ -89,16 +86,6 @@ def _show_content(text: str, *, max_lines: int = 20) -> None:
         print(f"  {DIM}│{RESET} {line}")
     if len(lines) > max_lines:
         print(f"  {DIM}│ ... ({len(lines)} lines total){RESET}")
-
-
-def _install_hook_script(hooks_dir: Path, package_name: str, dest_name: str) -> Path:
-    """Copy a hook script from package data and make it executable."""
-    source = importlib.resources.files("myelin_sdk.claude_code").joinpath(package_name)
-    dest = hooks_dir / dest_name
-    with importlib.resources.as_file(source) as src_path:
-        shutil.copy2(src_path, dest)
-    dest.chmod(dest.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return dest
 
 
 def _ensure_hook_entry(
@@ -197,10 +184,19 @@ def _build_settings_json(command: str) -> tuple[str, bool, bool]:
 
     hooks = settings.setdefault("hooks", {})
 
+    # Remove old hook command format if present
+    post_hooks = hooks.get("PostToolUse", [])
+    new_post_hooks = [
+        entry for entry in post_hooks
+        if not any("myelin-capture.py" in h.get("command", "") for h in entry.get("hooks", []))
+    ]
+    if len(new_post_hooks) != len(post_hooks):
+        hooks["PostToolUse"] = new_post_hooks
+
     modified = _ensure_hook_entry(
         hooks, "PostToolUse",
         command=command,
-        identifier="myelin-capture",
+        identifier="myelin_sdk",
         async_hook=True,
         timeout=10,
     )
@@ -277,20 +273,11 @@ def init():
     else:
         _skip("Skipped .claude/hooks/.env")
 
-    # 4. Hook script
-    hook_script = hooks_dir / "myelin-capture.py"
-    hook_existed = hook_script.exists()
-    _show_header(".claude/hooks/myelin-capture.py")
-    source = importlib.resources.files("myelin_sdk.claude_code").joinpath("capture.py")
-    with importlib.resources.as_file(source) as src_path:
-        line_count = len(src_path.read_text().splitlines())
-    print(f"  {DIM}│{RESET} (hook script — {line_count} lines)")
-    if _confirm("Install capture hook?"):
-        _install_hook_script(hooks_dir, "capture.py", "myelin-capture.py")
-        verb = "Updated" if hook_existed else "Installed"
-        _ok(f"{verb} {BOLD}.claude/hooks/myelin-capture.py{RESET}")
-    else:
-        _skip("Skipped capture hook")
+    # 4. Clean up old capture hook script if present (no longer needed)
+    old_hook_script = hooks_dir / "myelin-capture.py"
+    if old_hook_script.exists():
+        old_hook_script.unlink()
+        _info(f"Removed old {BOLD}myelin-capture.py{RESET} (now runs via installed SDK)")
 
     # 4b. Redaction config (optional)
     redaction_config_path = hooks_dir / "redaction.json"
@@ -313,7 +300,7 @@ def init():
             _info(f"Removed old {old_name}")
 
     # 5. .claude/settings.json
-    hook_command = 'python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/myelin-capture.py'
+    hook_command = "python3 -m myelin_sdk.claude_code"
     settings_content, settings_existed, hook_already_present = _build_settings_json(hook_command)
 
     _show_header(".claude/settings.json")
@@ -363,4 +350,6 @@ def init():
     print()
     print("  Restart Claude Code to activate Myelin. The MCP server")
     print("  and hooks will load automatically from your project config.")
+    print()
+    print(f"  {DIM}Hook runs via: python3 -m myelin_sdk.claude_code{RESET}")
     print()

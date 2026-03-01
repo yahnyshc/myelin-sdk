@@ -456,8 +456,8 @@ class TestRedaction:
         # Secret should pass through unredacted
         assert body["tool_input"]["key"] == secret
 
-    def test_no_config_file_passthrough(self, cc_session_id, project_dir, capture_server):
-        """Without redaction.json, secrets pass through."""
+    def test_no_config_file_uses_defaults(self, cc_session_id, project_dir, capture_server):
+        """Without redaction.json, built-in defaults still redact secrets."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_redact4")
@@ -472,7 +472,7 @@ class TestRedaction:
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
         body = CaptureHandler.captured[0]
-        assert body["tool_input"]["key"] == secret
+        assert body["tool_input"]["key"] == "[REDACTED]"
 
 
 class TestDebugMode:

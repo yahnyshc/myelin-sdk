@@ -1,6 +1,5 @@
 from importlib.metadata import version as _pkg_version
 
-from .client import MyelinClient
 from .redact import (
     BUILTIN_PATTERNS,
     RedactionConfig,
@@ -19,7 +18,6 @@ __version__ = _pkg_version("myelin-sdk")
 
 __all__ = [
     "BUILTIN_PATTERNS",
-    "MyelinClient",
     "MyelinSession",
     "RedactionConfig",
     "build_default_redaction_dict",

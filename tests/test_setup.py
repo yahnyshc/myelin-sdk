@@ -72,17 +72,17 @@ class TestBuildEnvContent:
 
 class TestBuildSettingsJson:
     def test_new_settings(self, project_dir):
-        command = 'python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/myelin-capture.py'
+        command = "python3 -m myelin_sdk.claude_code"
         content, existed, already_present = _build_settings_json(command)
         assert not existed
         assert not already_present
         parsed = json.loads(content)
         hooks = parsed["hooks"]["PostToolUse"]
         assert len(hooks) == 1
-        assert "myelin-capture" in hooks[0]["hooks"][0]["command"]
+        assert "myelin_sdk" in hooks[0]["hooks"][0]["command"]
 
     def test_existing_hook_not_duplicated(self, project_dir):
-        command = 'python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/myelin-capture.py'
+        command = "python3 -m myelin_sdk.claude_code"
         settings = {
             "hooks": {
                 "PostToolUse": [{
@@ -122,9 +122,9 @@ class TestGitignoreEntries:
 class TestInitFlow:
     def test_all_confirmed(self, project_dir):
         """When user confirms everything, all files are created."""
-        # Steps: api_key, .mcp.json, .env, capture hook, redaction config,
+        # Steps: api_key, .mcp.json, .env, redaction config,
         #        settings.json, .gitignore
-        inputs = iter(["test_api_key", "y", "y", "y", "y", "y", "y"])
+        inputs = iter(["test_api_key", "y", "y", "y", "y", "y"])
         with patch("builtins.input", side_effect=inputs):
             init()
 
@@ -136,8 +136,8 @@ class TestInitFlow:
         env = Path(".claude/hooks/.env").read_text()
         assert "MYELIN_API_KEY=test_api_key" in env
 
-        assert Path(".claude/hooks/myelin-capture.py").exists()
-        assert not Path(".claude/hooks/myelin-redact.py").exists()
+        # Capture hook is no longer copied — runs via python -m
+        assert not Path(".claude/hooks/myelin-capture.py").exists()
 
         assert Path(".claude/hooks/redaction.json").exists()
         redaction = json.loads(Path(".claude/hooks/redaction.json").read_text())
@@ -147,6 +147,8 @@ class TestInitFlow:
         assert Path(".claude/settings.json").exists()
         settings = json.loads(Path(".claude/settings.json").read_text())
         assert "PostToolUse" in settings["hooks"]
+        hook_cmd = settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+        assert "myelin_sdk" in hook_cmd
 
         assert Path(".gitignore").exists()
         gitignore = Path(".gitignore").read_text()
@@ -154,14 +156,12 @@ class TestInitFlow:
 
     def test_all_declined(self, project_dir):
         """When user declines everything, no files are created (except dirs)."""
-        inputs = iter(["test_api_key", "n", "n", "n", "n", "n", "n"])
+        inputs = iter(["test_api_key", "n", "n", "n", "n", "n"])
         with patch("builtins.input", side_effect=inputs):
             init()
 
         assert not Path(".mcp.json").exists()
         assert not Path(".claude/hooks/.env").exists()
-        assert not Path(".claude/hooks/myelin-capture.py").exists()
-        assert not Path(".claude/hooks/myelin-redact.py").exists()
         # settings.json may not exist since we declined
         if Path(".claude/settings.json").exists():
             settings = json.loads(Path(".claude/settings.json").read_text())
@@ -169,11 +169,10 @@ class TestInitFlow:
 
     def test_selective_confirm(self, project_dir):
         """User can confirm some files and skip others."""
-        # .mcp.json=y, .env=n, capture=y, redaction.json=y, settings=y, gitignore=y
-        inputs = iter(["test_api_key", "y", "n", "y", "y", "y", "y"])
+        # .mcp.json=y, .env=n, redaction.json=y, settings=y, gitignore=y
+        inputs = iter(["test_api_key", "y", "n", "y", "y", "y"])
         with patch("builtins.input", side_effect=inputs):
             init()
 
         assert Path(".mcp.json").exists()
         assert not Path(".claude/hooks/.env").exists()
-        assert Path(".claude/hooks/myelin-capture.py").exists()

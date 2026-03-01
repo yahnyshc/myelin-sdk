@@ -14,24 +14,11 @@ except ImportError:
         "Install langchain support: pip install myelin-sdk[langchain]"
     )
 
+from .._utils import truncate
 from ..client import MyelinClient
 from ..redact import RedactionConfig, redact_dict, redact_string
 
 logger = logging.getLogger(__name__)
-
-MAX_RESPONSE_LEN = 8000
-_HEAD = MAX_RESPONSE_LEN // 2
-_TAIL = MAX_RESPONSE_LEN // 2
-
-
-def _truncate(text: str) -> str:
-    if len(text) <= MAX_RESPONSE_LEN:
-        return text
-    return (
-        text[:_HEAD]
-        + f"\n... [{len(text)} chars, middle truncated] ...\n"
-        + text[-_TAIL:]
-    )
 
 
 class MyelinCallbackHandler(AsyncCallbackHandler):
@@ -115,12 +102,12 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
     async def on_tool_end(
         self, output: str, *, run_id: UUID, **kwargs: Any
     ) -> None:
-        await self._capture_tool(run_id, _truncate(str(output)))
+        await self._capture_tool(run_id, truncate(str(output)))
 
     async def on_tool_error(
         self, error: BaseException, *, run_id: UUID, **kwargs: Any
     ) -> None:
-        await self._capture_tool(run_id, _truncate(f"ERROR: {error}"))
+        await self._capture_tool(run_id, truncate(f"ERROR: {error}"))
 
     async def _capture_tool(self, run_id: UUID, output: str) -> None:
         pending = self._pending_tools.pop(run_id, None)

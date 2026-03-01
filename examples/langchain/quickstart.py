@@ -10,13 +10,11 @@ Usage:
 """
 
 import asyncio
-import os
 
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from myelin_sdk import MyelinClient
-from myelin_sdk.langchain import MyelinCallbackHandler
+from myelin_sdk import MyelinSession
 
 
 # --- Mock tools (replace with your real tools) ---
@@ -44,63 +42,51 @@ def send_reply(ticket_id: str, message: str) -> str:
 
 
 async def main():
-    # 1. Initialize Myelin
-    myelin = MyelinClient(api_key=os.environ["MYELIN_API_KEY"])
-    recall = await myelin.recall("handle a password reset support ticket")
-    print(f"Recall: session={recall.session_id}, matched={recall.matched}")
-    if recall.matched:
-        print(f"  Workflow: {recall.workflow.description}")
-        print(f"  Steps: {recall.workflow.total_steps}")
-        print(f"  Overview: {recall.workflow.overview[:200]}...")
-        print(f"  Skeleton:\n{recall.workflow.skeleton}")
+    async with await MyelinSession.start("handle a password reset support ticket") as session:
+        print(f"Recall: session={session.session_id}, matched={session.matched}")
+        if session.matched:
+            print(f"  Workflow: {session.workflow.description}")
+            print(f"  Steps: {session.workflow.total_steps}")
 
-    # 2. Create callback handler — this is the only integration point
-    handler = MyelinCallbackHandler(client=myelin, session_id=recall.session_id)
+        # Create callback handler — this is the only integration point
+        handler = session.callback()
 
-    # 3. Build your agent as usual, just pass the handler
-    llm = ChatOpenAI(model="gpt-4o-mini")
-    agent = llm.bind_tools([lookup_user, reset_password, send_reply])
+        # Build your agent as usual, just pass the handler
+        llm = ChatOpenAI(model="gpt-4o-mini")
+        agent = llm.bind_tools([lookup_user, reset_password, send_reply])
 
-    # 4. Run the agent with the callback
-    from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
-    messages = []
+        messages = []
 
-    # If Myelin found a matching workflow, give the agent its guidance
-    if recall.matched:
-        messages.append(SystemMessage(content=recall.workflow.overview))
+        # If Myelin found a matching workflow, give the agent its guidance
+        if session.matched:
+            messages.append(SystemMessage(content=session.workflow.overview))
 
-    messages.append(
-        HumanMessage(
-            content=(
-                "Ticket #1234: Customer alice@example.com says they can't log in. "
-                "Please reset their password and let them know."
+        messages.append(
+            HumanMessage(
+                content=(
+                    "Ticket #1234: Customer alice@example.com says they can't log in. "
+                    "Please reset their password and let them know."
+                )
             )
         )
-    )
 
-    # Agent loop — invoke until no more tool calls
-    while True:
-        response = await agent.ainvoke(messages, config={"callbacks": [handler]})
-        messages.append(response)
+        # Agent loop — invoke until no more tool calls
+        while True:
+            response = await agent.ainvoke(messages, config={"callbacks": [handler]})
+            messages.append(response)
 
-        if not response.tool_calls:
-            break
+            if not response.tool_calls:
+                break
 
-        # Execute tool calls
-        for tc in response.tool_calls:
-            tool_fn = {"lookup_user": lookup_user, "reset_password": reset_password, "send_reply": send_reply}[tc["name"]]
-            result = await tool_fn.ainvoke(tc["args"], config={"callbacks": [handler]})
-            from langchain_core.messages import ToolMessage
-            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+            for tc in response.tool_calls:
+                tool_fn = {"lookup_user": lookup_user, "reset_password": reset_password, "send_reply": send_reply}[tc["name"]]
+                result = await tool_fn.ainvoke(tc["args"], config={"callbacks": [handler]})
+                messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
 
-    print(f"Agent response: {response.content}")
-
-    # 5. Debrief — Myelin evaluates the session and extracts a workflow
-    result = await myelin.debrief(recall.session_id)
-    print(f"Session {result.session_id}: {result.tool_calls_recorded} tool calls recorded")
-
-    await myelin.close()
+        print(f"Agent response: {response.content}")
+    # Debrief happens automatically when the context manager exits
 
 
 if __name__ == "__main__":

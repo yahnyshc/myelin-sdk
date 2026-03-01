@@ -1,4 +1,4 @@
-"""Stdlib-only redaction engine for Myelin.
+"""Redaction engine for Myelin.
 
 Scrubs sensitive data (API keys, tokens, passwords, credentials) from tool call
 data before it leaves the machine. Two layers:
@@ -6,8 +6,7 @@ data before it leaves the machine. Two layers:
 1. Key-name denylist — scrub dict values where key matches sensitive names
 2. Regex value scanning — detect secrets by pattern (AWS, GitHub, Stripe, etc.)
 
-This module uses ONLY stdlib (re, json, os) so it can be copied alongside
-capture.py for the Claude Code hook path.
+Used by both the Claude Code capture hook and the LangChain callback handler.
 """
 
 import json
