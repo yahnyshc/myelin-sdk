@@ -1,9 +1,11 @@
 """LangChain callback handler for capturing tool calls to Myelin."""
 
+from __future__ import annotations
+
 import json
 import logging
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 from uuid import UUID
 
 try:
@@ -18,7 +20,16 @@ from ..._utils import truncate
 from ...client import MyelinClient
 from ...redact import RedactionConfig, redact_dict, redact_string
 
+if TYPE_CHECKING:
+    from .state import _MyelinToolState
+
 logger = logging.getLogger(__name__)
+
+_SKIP_TOOLS: frozenset[str] = frozenset({
+    "memory_recall",
+    "memory_hint",
+    "memory_finish",
+})
 
 
 class MyelinCallbackHandler(AsyncCallbackHandler):
@@ -27,12 +38,14 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
         client: MyelinClient,
         session_id: str,
         *,
+        state: _MyelinToolState | None = None,
         hide_inputs: Callable[[dict], dict] | None = None,
         hide_outputs: Callable[[str], str] | None = None,
         redaction: RedactionConfig | None = None,
     ):
         self._client = client
         self._session_id = session_id
+        self._state = state
         self._reasoning: dict[UUID, str] = {}
         self._pending_tools: dict[UUID, dict] = {}
         self._redaction = redaction
@@ -60,6 +73,13 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
         else:
             self._hide_outputs = hide_outputs
 
+    @property
+    def _effective_session_id(self) -> str | None:
+        """Return session ID from shared state (dynamic) or constructor (static)."""
+        if self._state is not None and self._state.session_id:
+            return self._state.session_id
+        return self._session_id or None
+
     async def on_llm_end(
         self, response: LLMResult, *, run_id: UUID, **kwargs: Any
     ) -> None:
@@ -86,6 +106,10 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         tool_name = serialized.get("name", "unknown")
+
+        if tool_name in _SKIP_TOOLS:
+            return
+
         try:
             tool_input = (
                 json.loads(input_str) if isinstance(input_str, str) else input_str
@@ -114,6 +138,10 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
         if not pending:
             return
 
+        session_id = self._effective_session_id
+        if not session_id:
+            return
+
         tool_input = pending["input"]
         tool_response = output
 
@@ -137,7 +165,7 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
 
         try:
             await self._client.capture(
-                session_id=self._session_id,
+                session_id=session_id,
                 tool_name=pending["name"],
                 tool_input=tool_input,
                 tool_response=tool_response,
