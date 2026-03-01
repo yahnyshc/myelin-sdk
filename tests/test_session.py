@@ -158,7 +158,7 @@ class TestStart:
     async def test_missing_key_raises(self, monkeypatch):
         monkeypatch.delenv("MYELIN_API_KEY", raising=False)
         with pytest.raises(ValueError, match="api_key required"):
-            await MyelinSession.start("task")
+            MyelinSession.start("task")
 
     async def test_context_manager_without_await(self):
         """async with MyelinSession.start(...) as session: — no await needed."""

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator, Coroutine
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from .client import MyelinClient
@@ -12,31 +12,6 @@ from .types import CaptureResponse, FinishResponse, HintResponse, RecallResponse
 
 if TYPE_CHECKING:
     from typing import Any, Callable
-
-
-class _SessionStarter:
-    """Returned by ``MyelinSession.start()`` to support both patterns:
-
-    - ``session = await MyelinSession.start(...)``
-    - ``async with MyelinSession.start(...) as session:``
-    """
-
-    __slots__ = ("_coro", "_session")
-
-    def __init__(self, coro: Coroutine[Any, Any, MyelinSession]):
-        self._coro = coro
-        self._session: MyelinSession | None = None
-
-    def __await__(self):
-        return self._coro.__await__()
-
-    async def __aenter__(self) -> MyelinSession:
-        self._session = await self._coro
-        return self._session
-
-    async def __aexit__(self, *exc: Any) -> None:
-        assert self._session is not None
-        await self._session.__aexit__(*exc)
 
 
 class MyelinSession:
@@ -51,6 +26,7 @@ class MyelinSession:
         self._recall = recall_response
         self._active = True
         self._owns_client = _owns_client
+        self._init_coro = None
 
     @classmethod
     def start(
@@ -61,16 +37,25 @@ class MyelinSession:
         base_url: str = "https://myelin.fly.dev",
         agent_id: str = "default",
         redaction: RedactionConfig | None = None,
-    ) -> _SessionStarter:
-        async def _create() -> MyelinSession:
-            key = api_key or os.environ.get("MYELIN_API_KEY")
-            if not key:
-                raise ValueError("api_key required (pass it or set MYELIN_API_KEY)")
-            client = MyelinClient(api_key=key, base_url=base_url, redaction=redaction)
-            recall = await client.recall(task, agent_id=agent_id)
-            return cls(client, recall, _owns_client=True)
+    ) -> MyelinSession:
+        key = api_key or os.environ.get("MYELIN_API_KEY")
+        if not key:
+            raise ValueError("api_key required (pass it or set MYELIN_API_KEY)")
 
-        return _SessionStarter(_create())
+        client = MyelinClient(api_key=key, base_url=base_url, redaction=redaction)
+        # Create a placeholder with a sentinel recall response; __await__ fills it in.
+        placeholder = RecallResponse(session_id="", matched=False)
+        session = cls(client, placeholder, _owns_client=True)
+
+        async def _init() -> MyelinSession:
+            session._recall = await client.recall(task, agent_id=agent_id)
+            return session
+
+        session._init_coro = _init()
+        return session
+
+    def __await__(self):
+        return self._init_coro.__await__()
 
     @property
     def session_id(self) -> str:
@@ -168,6 +153,9 @@ class MyelinSession:
         return preamble.rstrip() + "\n\n" + prompt if preamble else prompt
 
     async def __aenter__(self):
+        if self._init_coro is not None:
+            await self._init_coro
+            self._init_coro = None
         return self
 
     async def __aexit__(self, *exc):
