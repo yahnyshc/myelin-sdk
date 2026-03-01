@@ -338,6 +338,101 @@ class TestCapture:
         assert "capture failed" in result.stderr
 
 
+class TestRedaction:
+    """Test redaction in the subprocess capture hook."""
+
+    @pytest.fixture
+    def redaction_config(self):
+        """Create a temporary redaction.json from default config."""
+        from myelin_sdk.redact import build_default_redaction_dict
+
+        cfg = build_default_redaction_dict()
+        f = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        )
+        json.dump(cfg, f)
+        f.flush()
+        f.close()
+        yield f.name
+        os.unlink(f.name)
+
+    def test_api_key_in_input_redacted(self, cc_session_id, capture_server, redaction_config):
+        """API key in tool_input is redacted when redaction.json is present."""
+        sf = session_file(cc_session_id)
+        sf.write_text("ses_redact1")
+
+        result = run_hook(
+            {
+                "tool_name": "Bash",
+                "session_id": cc_session_id,
+                "tool_input": {"api_key": "sk-ant-api03-realsecretkeythatshouldbe"},
+                "tool_response": "ok",
+            },
+            env={"MYELIN_REDACTION_CONFIG": redaction_config},
+        )
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        body = CaptureHandler.captured[0]
+        assert body["tool_input"]["api_key"] == "[REDACTED]"
+
+    def test_bearer_in_response_redacted(self, cc_session_id, capture_server, redaction_config):
+        """Bearer token in tool_response is redacted."""
+        sf = session_file(cc_session_id)
+        sf.write_text("ses_redact2")
+
+        result = run_hook(
+            {
+                "tool_name": "Bash",
+                "session_id": cc_session_id,
+                "tool_input": {"command": "curl"},
+                "tool_response": "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.test",
+            },
+            env={"MYELIN_REDACTION_CONFIG": redaction_config},
+        )
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        body = CaptureHandler.captured[0]
+        assert "Bearer" not in body["tool_response"] or "[REDACTED]" in body["tool_response"]
+
+    def test_redact_disabled_via_env(self, cc_session_id, capture_server):
+        """MYELIN_REDACT=0 disables redaction."""
+        sf = session_file(cc_session_id)
+        sf.write_text("ses_redact3")
+
+        secret = "sk-ant-api03-realsecretkeythatshouldbe"
+        result = run_hook(
+            {
+                "tool_name": "Bash",
+                "session_id": cc_session_id,
+                "tool_input": {"key": secret},
+                "tool_response": "ok",
+            },
+            env={"MYELIN_REDACT": "0"},
+        )
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        body = CaptureHandler.captured[0]
+        # Secret should pass through unredacted
+        assert body["tool_input"]["key"] == secret
+
+    def test_no_config_file_passthrough(self, cc_session_id, capture_server):
+        """Without redaction.json, secrets pass through."""
+        sf = session_file(cc_session_id)
+        sf.write_text("ses_redact4")
+
+        secret = "sk-ant-api03-realsecretkeythatshouldbe"
+        result = run_hook({
+            "tool_name": "Bash",
+            "session_id": cc_session_id,
+            "tool_input": {"key": secret},
+            "tool_response": "ok",
+        })
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        body = CaptureHandler.captured[0]
+        assert body["tool_input"]["key"] == secret
+
+
 class TestDebugMode:
     def test_debug_logging(self, cc_session_id):
         result = run_hook(

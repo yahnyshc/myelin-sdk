@@ -1,14 +1,48 @@
 """Session state wrapper for Myelin interactions."""
 
+from __future__ import annotations
+
+import os
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
+
 from .client import MyelinClient
+from .redact import RedactionConfig
 from .types import CaptureResponse, DebriefResponse, HintResponse, RecallResponse, WorkflowInfo
+
+if TYPE_CHECKING:
+    from typing import Callable
 
 
 class MyelinSession:
-    def __init__(self, client: MyelinClient, recall_response: RecallResponse):
+    def __init__(
+        self,
+        client: MyelinClient,
+        recall_response: RecallResponse,
+        *,
+        _owns_client: bool = False,
+    ):
         self._client = client
         self._recall = recall_response
         self._active = True
+        self._owns_client = _owns_client
+
+    @classmethod
+    async def start(
+        cls,
+        task: str,
+        *,
+        api_key: str | None = None,
+        base_url: str = "https://myelin.fly.dev",
+        agent_id: str = "default",
+        redaction: RedactionConfig | None = None,
+    ) -> MyelinSession:
+        key = api_key or os.environ.get("MYELIN_API_KEY")
+        if not key:
+            raise ValueError("api_key required (pass it or set MYELIN_API_KEY)")
+        client = MyelinClient(api_key=key, base_url=base_url, redaction=redaction)
+        recall = await client.recall(task, agent_id=agent_id)
+        return cls(client, recall, _owns_client=True)
 
     @property
     def session_id(self) -> str:
@@ -45,3 +79,53 @@ class MyelinSession:
 
     async def hint(self, step_number: int) -> HintResponse:
         return await self._client.hint(self.session_id, step_number)
+
+    def callback(
+        self,
+        *,
+        hide_inputs: Callable | None = None,
+        hide_outputs: Callable | None = None,
+        redaction: RedactionConfig | None = None,
+    ):
+        from .langchain.handler import MyelinCallbackHandler
+
+        return MyelinCallbackHandler(
+            client=self._client,
+            session_id=self.session_id,
+            hide_inputs=hide_inputs,
+            hide_outputs=hide_outputs,
+            redaction=redaction,
+        )
+
+    async def steps(self) -> AsyncIterator[tuple[int, str]]:
+        if not self.matched or not self.workflow:
+            return
+        for i in range(1, self.workflow.total_steps + 1):
+            h = await self.hint(i)
+            yield i, h.detail
+
+    async def build_system_prompt(self, *, preamble: str = "") -> str | None:
+        if not self.matched or not self.workflow:
+            return None
+        wf = self.workflow
+        hints = [f"Step {n}: {d}" async for n, d in self.steps()]
+        prompt = (
+            f"You are following a proven procedure for: {wf.description}\n\n"
+            f"Overview: {wf.overview}\n\n"
+            f"Steps:\n" + "\n".join(hints) + "\n\n"
+            "Adapt these steps to the specific request. "
+            "Use the available tools to execute each step."
+        )
+        return preamble.rstrip() + "\n\n" + prompt if preamble else prompt
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        if self._active:
+            try:
+                await self.debrief()
+            except Exception:
+                pass
+        if self._owns_client:
+            await self._client.close()

@@ -3,7 +3,7 @@
 import json
 import logging
 import time
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
 try:
@@ -15,6 +15,7 @@ except ImportError:
     )
 
 from ..client import MyelinClient
+from ..redact import RedactionConfig, redact_dict, redact_string
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +35,43 @@ def _truncate(text: str) -> str:
 
 
 class MyelinCallbackHandler(AsyncCallbackHandler):
-    def __init__(self, client: MyelinClient, session_id: str):
+    def __init__(
+        self,
+        client: MyelinClient,
+        session_id: str,
+        *,
+        hide_inputs: Callable[[dict], dict] | None = None,
+        hide_outputs: Callable[[str], str] | None = None,
+        redaction: RedactionConfig | None = None,
+    ):
         self._client = client
         self._session_id = session_id
         self._reasoning: dict[UUID, str] = {}
         self._pending_tools: dict[UUID, dict] = {}
+        self._redaction = redaction
+
+        # Compose redaction with user callbacks: redaction first, then user cb
+        if redaction and redaction.enabled and redaction.redact_tool_input:
+            base_hide_inputs = hide_inputs
+            def _composed_hide_inputs(data: dict) -> dict:
+                data = redact_dict(data, redaction)
+                if base_hide_inputs:
+                    data = base_hide_inputs(data)
+                return data
+            self._hide_inputs = _composed_hide_inputs
+        else:
+            self._hide_inputs = hide_inputs
+
+        if redaction and redaction.enabled and redaction.redact_tool_response:
+            base_hide_outputs = hide_outputs
+            def _composed_hide_outputs(text: str) -> str:
+                text = redact_string(text, redaction)
+                if base_hide_outputs:
+                    text = base_hide_outputs(text)
+                return text
+            self._hide_outputs = _composed_hide_outputs
+        else:
+            self._hide_outputs = hide_outputs
 
     async def on_llm_end(
         self, response: LLMResult, *, run_id: UUID, **kwargs: Any
@@ -94,17 +127,33 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
         if not pending:
             return
 
+        tool_input = pending["input"]
+        tool_response = output
+
+        if self._hide_inputs:
+            tool_input = self._hide_inputs(tool_input)
+        if self._hide_outputs:
+            tool_response = self._hide_outputs(tool_response)
+
         reasoning = None
         parent_id = pending.get("parent_run_id")
         if parent_id:
             reasoning = self._reasoning.pop(parent_id, None)
 
+        if (
+            reasoning
+            and self._redaction
+            and self._redaction.enabled
+            and self._redaction.redact_reasoning
+        ):
+            reasoning = redact_string(reasoning, self._redaction)
+
         try:
             await self._client.capture(
                 session_id=self._session_id,
                 tool_name=pending["name"],
-                tool_input=pending["input"],
-                tool_response=output,
+                tool_input=tool_input,
+                tool_response=tool_response,
                 reasoning=reasoning,
                 client_ts=time.time(),
             )

@@ -133,6 +133,94 @@ class TestHint:
         await client.close()
 
 
+class TestRedaction:
+    async def test_default_redaction_applied(self):
+        """Client applies redaction to tool_input and tool_response by default."""
+        requests_sent = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            import json as _json
+            requests_sent.append(_json.loads(request.content))
+            return httpx.Response(200, json={"status": "ok"})
+
+        client = MyelinClient(api_key="test-key", base_url="https://test.myelin.dev")
+        client._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://test.myelin.dev",
+            headers={"Authorization": "Bearer test-key"},
+        )
+        await client.capture(
+            session_id="ses_1",
+            tool_name="Bash",
+            tool_input={"api_key": "sk-ant-api03-secretsecretsecretsecret"},
+            tool_response="token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn",
+        )
+        body = requests_sent[0]
+        assert body["tool_input"]["api_key"] == "[REDACTED]"
+        assert "ghp_" not in body["tool_response"]
+        await client.close()
+
+    async def test_redaction_disabled(self):
+        """Redaction can be disabled via config."""
+        from myelin_sdk.redact import RedactionConfig
+
+        requests_sent = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            import json as _json
+            requests_sent.append(_json.loads(request.content))
+            return httpx.Response(200, json={"status": "ok"})
+
+        client = MyelinClient(
+            api_key="test-key",
+            base_url="https://test.myelin.dev",
+            redaction=RedactionConfig(enabled=False),
+        )
+        client._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://test.myelin.dev",
+            headers={"Authorization": "Bearer test-key"},
+        )
+        secret = "sk-ant-api03-secretsecretsecretsecret"
+        await client.capture(
+            session_id="ses_1",
+            tool_name="Bash",
+            tool_input={"key": secret},
+            tool_response=secret,
+        )
+        body = requests_sent[0]
+        assert body["tool_input"]["key"] == secret
+        assert body["tool_response"] == secret
+        await client.close()
+
+    async def test_reasoning_redacted(self):
+        """Reasoning containing secrets is redacted."""
+        requests_sent = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            import json as _json
+            requests_sent.append(_json.loads(request.content))
+            return httpx.Response(200, json={"status": "ok"})
+
+        client = MyelinClient(api_key="test-key", base_url="https://test.myelin.dev")
+        client._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://test.myelin.dev",
+            headers={"Authorization": "Bearer test-key"},
+        )
+        await client.capture(
+            session_id="ses_1",
+            tool_name="Bash",
+            tool_input={"command": "ls"},
+            tool_response="ok",
+            reasoning="Use key ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn",
+        )
+        body = requests_sent[0]
+        assert "ghp_" not in body["reasoning"]
+        assert "[REDACTED]" in body["reasoning"]
+        await client.close()
+
+
 class TestContextManager:
     async def test_async_context_manager(self):
         client = _client_with([{"json": {"session_id": "ses_1", "matched": False}}])

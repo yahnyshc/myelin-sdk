@@ -239,6 +239,8 @@ def _gitignore_entries_needed() -> list[str]:
 
 def init():
     """Set up Myelin in the current project interactively."""
+    from ..redact import build_default_redaction_dict
+
     print()
     print(f"  {BOLD_CYAN}╭──────────────────────────────────╮{RESET}")
     print(f"  {BOLD_CYAN}│{RESET}  {BOLD}Myelin{RESET} — interactive setup      {BOLD_CYAN}│{RESET}")
@@ -290,8 +292,21 @@ def init():
     else:
         _skip("Skipped capture hook")
 
+    # 4b. Redaction config (optional)
+    redaction_config_path = hooks_dir / "redaction.json"
+    if not redaction_config_path.exists():
+        if _confirm("Create redaction config?"):
+            redaction_cfg = build_default_redaction_dict()
+            content = json.dumps(redaction_cfg, indent=2) + "\n"
+            _show_header(".claude/hooks/redaction.json")
+            _show_content(content)
+            redaction_config_path.write_text(content)
+            _ok(f"Created {BOLD}.claude/hooks/redaction.json{RESET}")
+        else:
+            _skip("Skipped redaction config")
+
     # Clean up old hooks if upgrading
-    for old_name in ("myelin-capture.sh", "myelin-reasoning.py"):
+    for old_name in ("myelin-capture.sh", "myelin-reasoning.py", "myelin-redact.py"):
         old_dest = hooks_dir / old_name
         if old_dest.exists():
             old_dest.unlink()

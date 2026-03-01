@@ -122,7 +122,9 @@ class TestGitignoreEntries:
 class TestInitFlow:
     def test_all_confirmed(self, project_dir):
         """When user confirms everything, all files are created."""
-        inputs = iter(["test_api_key", "y", "y", "y", "y", "y"])
+        # Steps: api_key, .mcp.json, .env, capture hook, redaction config,
+        #        settings.json, .gitignore
+        inputs = iter(["test_api_key", "y", "y", "y", "y", "y", "y"])
         with patch("builtins.input", side_effect=inputs):
             init()
 
@@ -135,6 +137,12 @@ class TestInitFlow:
         assert "MYELIN_API_KEY=test_api_key" in env
 
         assert Path(".claude/hooks/myelin-capture.py").exists()
+        assert not Path(".claude/hooks/myelin-redact.py").exists()
+
+        assert Path(".claude/hooks/redaction.json").exists()
+        redaction = json.loads(Path(".claude/hooks/redaction.json").read_text())
+        assert isinstance(redaction["patterns"], list)
+        assert isinstance(redaction["sensitive_keys"], list)
 
         assert Path(".claude/settings.json").exists()
         settings = json.loads(Path(".claude/settings.json").read_text())
@@ -146,13 +154,14 @@ class TestInitFlow:
 
     def test_all_declined(self, project_dir):
         """When user declines everything, no files are created (except dirs)."""
-        inputs = iter(["test_api_key", "n", "n", "n", "n", "n"])
+        inputs = iter(["test_api_key", "n", "n", "n", "n", "n", "n"])
         with patch("builtins.input", side_effect=inputs):
             init()
 
         assert not Path(".mcp.json").exists()
         assert not Path(".claude/hooks/.env").exists()
         assert not Path(".claude/hooks/myelin-capture.py").exists()
+        assert not Path(".claude/hooks/myelin-redact.py").exists()
         # settings.json may not exist since we declined
         if Path(".claude/settings.json").exists():
             settings = json.loads(Path(".claude/settings.json").read_text())
@@ -160,7 +169,8 @@ class TestInitFlow:
 
     def test_selective_confirm(self, project_dir):
         """User can confirm some files and skip others."""
-        inputs = iter(["test_api_key", "y", "n", "y", "y", "y"])
+        # .mcp.json=y, .env=n, capture=y, redaction.json=y, settings=y, gitignore=y
+        inputs = iter(["test_api_key", "y", "n", "y", "y", "y", "y"])
         with patch("builtins.input", side_effect=inputs):
             init()
 

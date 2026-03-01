@@ -15,6 +15,118 @@ import time
 import urllib.request
 import urllib.error
 
+# -- Inline redaction engine (stdlib-only) ------------------------------------
+
+_DEFAULT_SENSITIVE_KEYS = frozenset({
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "api-key",
+    "authorization",
+    "credentials",
+    "access_token",
+    "refresh_token",
+    "private_key",
+    "secret_key",
+    "client_secret",
+})
+
+
+class _RedactionConfig:
+    """Lightweight redaction config loaded from a JSON dict."""
+
+    def __init__(self, data: dict):
+        self.enabled = data.get("enabled", True)
+        self.replacement = data.get("replacement", "[REDACTED]")
+        self.redact_tool_input = data.get("redact_tool_input", True)
+        self.redact_tool_response = data.get("redact_tool_response", True)
+        self.redact_reasoning = data.get("redact_reasoning", True)
+
+        # Compile patterns
+        self._compiled: list[tuple[str, re.Pattern]] = []
+        for p in data.get("patterns", []):
+            if p.get("_context_required"):
+                continue
+            try:
+                self._compiled.append((p["name"], re.compile(p["pattern"])))
+            except (KeyError, re.error):
+                pass
+
+        # Build sensitive keys set
+        sk = data.get("sensitive_keys")
+        if sk is not None:
+            self._sensitive_keys: set[str] = {k.lower() for k in sk}
+        else:
+            self._sensitive_keys = set(_DEFAULT_SENSITIVE_KEYS)
+        extra = data.get("extra_sensitive_keys")
+        if extra:
+            self._sensitive_keys |= {k.lower() for k in extra}
+
+
+def _load_redaction_config():
+    """Load redaction config from env / auto-discovery. Returns None if no config."""
+    if os.environ.get("MYELIN_REDACT") == "0":
+        return _RedactionConfig({"enabled": False})
+
+    config_path = os.environ.get("MYELIN_REDACTION_CONFIG", "")
+    if config_path and os.path.isfile(config_path):
+        try:
+            with open(config_path) as f:
+                return _RedactionConfig(json.load(f))
+        except (json.JSONDecodeError, OSError):
+            return None
+
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if project_dir:
+        auto_path = os.path.join(project_dir, ".claude", "hooks", "redaction.json")
+        if os.path.isfile(auto_path):
+            try:
+                with open(auto_path) as f:
+                    return _RedactionConfig(json.load(f))
+            except (json.JSONDecodeError, OSError):
+                return None
+
+    return None
+
+
+def _redact_string(text, config):
+    """Apply regex patterns to scrub secrets from a string."""
+    if not config.enabled or not text:
+        return text
+    for _name, pattern in config._compiled:
+        text = pattern.sub(config.replacement, text)
+    return text
+
+
+def _redact_value(value, config):
+    """Recursively redact a value (dict, list, or string)."""
+    if isinstance(value, dict):
+        result = {}
+        for k, v in value.items():
+            if k.lower() in config._sensitive_keys and isinstance(v, str):
+                result[k] = config.replacement
+            else:
+                result[k] = _redact_value(v, config)
+        return result
+    if isinstance(value, list):
+        return [_redact_value(item, config) for item in value]
+    if isinstance(value, str):
+        return _redact_string(value, config)
+    return value
+
+
+def _redact_dict(data, config):
+    """Scrub sensitive dict values by key name, then regex-scan all strings."""
+    if not config.enabled:
+        return data
+    return _redact_value(data, config)
+
+
+# -- Hook constants -----------------------------------------------------------
+
 MYELIN_TOOL_PREFIX = "mcp__myelin__"
 _ENV_LOADED = False
 RECALL = f"{MYELIN_TOOL_PREFIX}memory_recall"
@@ -272,6 +384,7 @@ def main() -> int:
         return 0
 
     _load_env()
+    _redaction_cfg = _load_redaction_config()
     debug(f"tool={tool_name}")
     session_file = session_file_path(cc_session_id)
 
@@ -320,7 +433,16 @@ def main() -> int:
         return 0
 
     tool_input = data.get("tool_input", {})
-    tool_response = _truncate(str(data.get("tool_response", "")))
+    tool_response = str(data.get("tool_response", ""))
+
+    # Redact before truncate
+    if _redaction_cfg and _redaction_cfg.enabled:
+        if _redaction_cfg.redact_tool_input:
+            tool_input = _redact_dict(tool_input, _redaction_cfg)
+        if _redaction_cfg.redact_tool_response:
+            tool_response = _redact_string(tool_response, _redaction_cfg)
+
+    tool_response = _truncate(tool_response)
 
     # Extract reasoning directly from the transcript
     reasoning = None
@@ -330,6 +452,9 @@ def main() -> int:
         reasoning = extract_reasoning_from_transcript(transcript_path, tool_use_id)
         if reasoning:
             debug(f"extracted reasoning ({len(reasoning)} chars) for {tool_use_id}")
+
+    if reasoning and _redaction_cfg and _redaction_cfg.enabled and _redaction_cfg.redact_reasoning:
+        reasoning = _redact_string(reasoning, _redaction_cfg)
 
     capture_payload: dict = {
         "session_id": myelin_sid,

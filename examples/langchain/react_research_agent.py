@@ -14,14 +14,12 @@ Usage:
 """
 
 import asyncio
-import os
 
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
-from myelin_sdk import MyelinClient, MyelinSession
-from myelin_sdk.langchain import MyelinCallbackHandler
+from myelin_sdk import MyelinSession
 
 
 # --- Tools ---
@@ -68,47 +66,37 @@ def write_report(title: str, sections: str) -> str:
 async def main():
     task = "research how procedural memory differs from semantic memory in AI agents"
 
-    # 1. Start Myelin session
-    myelin = MyelinClient(api_key=os.environ["MYELIN_API_KEY"])
-    recall = await myelin.recall(task)
-    session = MyelinSession(myelin, recall)
+    async with await MyelinSession.start(task) as session:
+        if session.matched:
+            print(f"Following workflow: {session.workflow.description}")
+            print(f"Steps: {session.workflow.skeleton}\n")
+        else:
+            print("No existing workflow — pioneering a new research approach\n")
 
-    if session.matched:
-        print(f"Following workflow: {session.workflow.description}")
-        print(f"Steps: {session.workflow.skeleton}\n")
-    else:
-        print("No existing workflow — pioneering a new research approach\n")
+        handler = session.callback()
+        llm = ChatOpenAI(model="gpt-4o-mini")
 
-    # 2. Create the agent with Myelin callback
-    handler = MyelinCallbackHandler(client=myelin, session_id=session.session_id)
-    llm = ChatOpenAI(model="gpt-4o-mini")
+        agent = create_react_agent(
+            llm,
+            tools=[web_search, read_url, take_note, write_report],
+        )
 
-    agent = create_react_agent(
-        llm,
-        tools=[web_search, read_url, take_note, write_report],
-    )
+        result = await agent.ainvoke(
+            {"messages": [{"role": "user", "content": task}]},
+            config={"callbacks": [handler]},
+        )
 
-    # 3. Run
-    result = await agent.ainvoke(
-        {"messages": [{"role": "user", "content": task}]},
-        config={"callbacks": [handler]},
-    )
+        final = result["messages"][-1]
+        print(f"Agent: {final.content}\n")
 
-    # Print final message
-    final = result["messages"][-1]
-    print(f"Agent: {final.content}\n")
-
-    # 4. Debrief
-    debrief = await session.debrief()
-    print(f"Recorded {debrief.tool_calls_recorded} tool calls")
-    if debrief.workflow_id:
-        print(f"Workflow extracted: {debrief.workflow_id}")
-    print(
-        "\nNext time this task is run, Myelin may return a proven workflow "
-        "so the agent follows a structured research approach."
-    )
-
-    await myelin.close()
+        debrief = await session.debrief()
+        print(f"Recorded {debrief.tool_calls_recorded} tool calls")
+        if debrief.workflow_id:
+            print(f"Workflow extracted: {debrief.workflow_id}")
+        print(
+            "\nNext time this task is run, Myelin may return a proven workflow "
+            "so the agent follows a structured research approach."
+        )
 
 
 if __name__ == "__main__":

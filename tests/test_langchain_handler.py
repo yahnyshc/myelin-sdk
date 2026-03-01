@@ -1,7 +1,6 @@
 """Tests for the LangChain callback handler."""
 
-import sys
-import types
+import json
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -18,40 +17,18 @@ class FakeLLMResult:
         self.generations = [[FakeGeneration(t) for t in texts]]
 
 
-class _AsyncCallbackHandler:
-    pass
-
-
 @pytest.fixture(autouse=True)
-def _patch_langchain(monkeypatch):
-    """Patch langchain_core imports so tests work without langchain installed."""
-    langchain_core = types.ModuleType("langchain_core")
-    callbacks_mod = types.ModuleType("langchain_core.callbacks")
-    outputs_mod = types.ModuleType("langchain_core.outputs")
-
-    callbacks_mod.AsyncCallbackHandler = _AsyncCallbackHandler
-    outputs_mod.LLMResult = FakeLLMResult
-
-    langchain_core.callbacks = callbacks_mod
-    langchain_core.outputs = outputs_mod
-
-    monkeypatch.setitem(sys.modules, "langchain_core", langchain_core)
-    monkeypatch.setitem(sys.modules, "langchain_core.callbacks", callbacks_mod)
-    monkeypatch.setitem(sys.modules, "langchain_core.outputs", outputs_mod)
-
-    # Force reimport of handler module so it picks up our mocks
-    for mod_name in list(sys.modules):
-        if "myelin_sdk.langchain" in mod_name:
-            monkeypatch.delitem(sys.modules, mod_name)
+def _patch_langchain(patch_langchain):
+    """Use the shared langchain patch from conftest."""
 
 
-def _make_handler(client=None, session_id="ses_test"):
+def _make_handler(client=None, session_id="ses_test", **kwargs):
     from myelin_sdk.langchain.handler import MyelinCallbackHandler
 
     if client is None:
         client = AsyncMock()
         client.capture = AsyncMock()
-    return MyelinCallbackHandler(client=client, session_id=session_id), client
+    return MyelinCallbackHandler(client=client, session_id=session_id, **kwargs), client
 
 
 class TestOnLlmEnd:
@@ -217,6 +194,195 @@ class TestOnToolError:
         client.capture.assert_awaited_once()
         resp = client.capture.call_args.kwargs["tool_response"]
         assert "ERROR: command failed" in resp
+
+
+class TestHideCallbacks:
+    async def test_hide_inputs(self):
+        """hide_inputs callback transforms tool_input before capture."""
+        def hide(data):
+            return {k: "***" if k == "secret" else v for k, v in data.items()}
+
+        handler, client = _make_handler(hide_inputs=hide)
+        tool_run_id = uuid4()
+        await handler.on_tool_start(
+            {"name": "bash"},
+            '{"secret": "password123", "cmd": "ls"}',
+            run_id=tool_run_id,
+        )
+        await handler.on_tool_end("output", run_id=tool_run_id)
+
+        call_kwargs = client.capture.call_args.kwargs
+        assert call_kwargs["tool_input"]["secret"] == "***"
+        assert call_kwargs["tool_input"]["cmd"] == "ls"
+
+    async def test_hide_outputs(self):
+        """hide_outputs callback transforms tool_response before capture."""
+        def hide(text):
+            return text.replace("secret_value", "***")
+
+        handler, client = _make_handler(hide_outputs=hide)
+        tool_run_id = uuid4()
+        await handler.on_tool_start(
+            {"name": "read"}, '{}', run_id=tool_run_id
+        )
+        await handler.on_tool_end("data: secret_value", run_id=tool_run_id)
+
+        call_kwargs = client.capture.call_args.kwargs
+        assert "secret_value" not in call_kwargs["tool_response"]
+        assert "***" in call_kwargs["tool_response"]
+
+    async def test_both_callbacks(self):
+        """Both callbacks can be used together."""
+        handler, client = _make_handler(
+            hide_inputs=lambda d: {"redacted": True},
+            hide_outputs=lambda s: "[hidden]",
+        )
+        tool_run_id = uuid4()
+        await handler.on_tool_start(
+            {"name": "bash"}, '{"cmd": "ls"}', run_id=tool_run_id
+        )
+        await handler.on_tool_end("files", run_id=tool_run_id)
+
+        call_kwargs = client.capture.call_args.kwargs
+        assert call_kwargs["tool_input"] == {"redacted": True}
+        assert call_kwargs["tool_response"] == "[hidden]"
+
+
+class TestRedactionIntegration:
+    """Test RedactionConfig integration on MyelinCallbackHandler."""
+
+    def _make_redaction_config(self, **kwargs):
+        from myelin_sdk.redact import RedactionConfig
+        defaults = {
+            "enabled": True,
+            "redact_tool_input": True,
+            "redact_tool_response": True,
+            "redact_reasoning": True,
+        }
+        defaults.update(kwargs)
+        return RedactionConfig(**defaults)
+
+    async def test_scrubs_tool_input(self):
+        cfg = self._make_redaction_config()
+        handler, client = _make_handler(redaction=cfg)
+        tool_run_id = uuid4()
+        # GitHub PAT in tool input
+        await handler.on_tool_start(
+            {"name": "bash"},
+            '{"token": "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"}',
+            run_id=tool_run_id,
+        )
+        await handler.on_tool_end("ok", run_id=tool_run_id)
+
+        captured_input = client.capture.call_args.kwargs["tool_input"]
+        assert "ghp_" not in str(captured_input)
+        assert "[REDACTED]" in str(captured_input)
+
+    async def test_scrubs_tool_response(self):
+        cfg = self._make_redaction_config()
+        handler, client = _make_handler(redaction=cfg)
+        tool_run_id = uuid4()
+        await handler.on_tool_start(
+            {"name": "read"}, '{}', run_id=tool_run_id
+        )
+        await handler.on_tool_end(
+            "sk-ant-api03-secretsecretsecretsecretsecret",
+            run_id=tool_run_id,
+        )
+
+        captured_resp = client.capture.call_args.kwargs["tool_response"]
+        assert "sk-ant-" not in captured_resp
+        assert "[REDACTED]" in captured_resp
+
+    async def test_scrubs_reasoning(self):
+        cfg = self._make_redaction_config()
+        handler, client = _make_handler(redaction=cfg)
+        llm_id = uuid4()
+        tool_id = uuid4()
+        await handler.on_llm_end(
+            FakeLLMResult(["Found key ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"]),
+            run_id=llm_id,
+        )
+        await handler.on_tool_start(
+            {"name": "t"}, '{}', run_id=tool_id, parent_run_id=llm_id
+        )
+        await handler.on_tool_end("ok", run_id=tool_id)
+
+        reasoning = client.capture.call_args.kwargs["reasoning"]
+        assert "ghp_" not in reasoning
+        assert "[REDACTED]" in reasoning
+
+    async def test_composes_with_hide_inputs(self):
+        cfg = self._make_redaction_config()
+
+        def user_hide(data):
+            return {k: "USER_HIDDEN" if k == "cmd" else v for k, v in data.items()}
+
+        handler, client = _make_handler(redaction=cfg, hide_inputs=user_hide)
+        tool_run_id = uuid4()
+        await handler.on_tool_start(
+            {"name": "bash"},
+            '{"cmd": "ls", "token": "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"}',
+            run_id=tool_run_id,
+        )
+        await handler.on_tool_end("ok", run_id=tool_run_id)
+
+        captured = client.capture.call_args.kwargs["tool_input"]
+        # Redaction scrubs the token value
+        assert "ghp_" not in str(captured)
+        # User callback hides cmd
+        assert captured["cmd"] == "USER_HIDDEN"
+
+    async def test_composes_with_hide_outputs(self):
+        cfg = self._make_redaction_config()
+
+        def user_hide(text):
+            return text.replace("visible", "USER_HIDDEN")
+
+        handler, client = _make_handler(redaction=cfg, hide_outputs=user_hide)
+        tool_run_id = uuid4()
+        await handler.on_tool_start(
+            {"name": "read"}, '{}', run_id=tool_run_id
+        )
+        await handler.on_tool_end(
+            "visible sk-ant-api03-secretsecretsecretsecretsecret",
+            run_id=tool_run_id,
+        )
+
+        captured = client.capture.call_args.kwargs["tool_response"]
+        assert "sk-ant-" not in captured
+        assert "USER_HIDDEN" in captured
+
+    async def test_disabled_redaction_is_noop(self):
+        cfg = self._make_redaction_config(enabled=False)
+        handler, client = _make_handler(redaction=cfg)
+        tool_run_id = uuid4()
+        token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
+        await handler.on_tool_start(
+            {"name": "bash"},
+            json.dumps({"token": token}),
+            run_id=tool_run_id,
+        )
+        await handler.on_tool_end(token, run_id=tool_run_id)
+
+        captured = client.capture.call_args.kwargs
+        assert token in str(captured["tool_input"])
+        assert token in captured["tool_response"]
+
+    async def test_none_redaction_is_noop(self):
+        handler, client = _make_handler(redaction=None)
+        tool_run_id = uuid4()
+        token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
+        await handler.on_tool_start(
+            {"name": "bash"},
+            json.dumps({"token": token}),
+            run_id=tool_run_id,
+        )
+        await handler.on_tool_end(token, run_id=tool_run_id)
+
+        captured = client.capture.call_args.kwargs
+        assert token in str(captured["tool_input"])
+        assert token in captured["tool_response"]
 
 
 class TestFireAndForget:

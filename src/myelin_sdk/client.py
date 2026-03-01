@@ -6,13 +6,21 @@ import httpx
 
 from importlib.metadata import version as _pkg_version
 
+from .redact import RedactionConfig, get_default_config, redact_dict, redact_string
 from .types import CaptureResponse, DebriefResponse, HintResponse, RecallResponse
 
 _VERSION = _pkg_version("myelin-sdk")
 
 
 class MyelinClient:
-    def __init__(self, api_key: str, base_url: str = "https://myelin.fly.dev"):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = "https://myelin.fly.dev",
+        *,
+        redaction: RedactionConfig | None = None,
+    ):
+
         self._http = httpx.AsyncClient(
             base_url=base_url,
             headers={
@@ -22,9 +30,12 @@ class MyelinClient:
             timeout=30.0,
             limits=httpx.Limits(max_keepalive_connections=0),
         )
+        self._redaction: RedactionConfig = (
+            redaction if redaction is not None else get_default_config()
+        )
 
     async def recall(
-        self, task_description: str, agent_id: str = "langchain"
+        self, task_description: str, agent_id: str = "default"
     ) -> RecallResponse:
         resp = await self._http.post(
             "/v1/recall",
@@ -42,6 +53,16 @@ class MyelinClient:
         reasoning: str | None = None,
         client_ts: float | None = None,
     ) -> CaptureResponse:
+        if self._redaction.enabled:
+            if self._redaction.redact_tool_input:
+                tool_input = redact_dict(tool_input, self._redaction)
+            if self._redaction.redact_tool_response:
+                tool_response = redact_string(
+                    str(tool_response), self._redaction
+                )
+            if reasoning and self._redaction.redact_reasoning:
+                reasoning = redact_string(reasoning, self._redaction)
+
         payload: dict = {
             "session_id": session_id,
             "tool_name": tool_name,

@@ -11,14 +11,12 @@ Usage:
 """
 
 import asyncio
-import os
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from myelin_sdk import MyelinClient, MyelinSession
-from myelin_sdk.langchain import MyelinCallbackHandler
+from myelin_sdk import MyelinSession
 
 
 @tool
@@ -49,7 +47,7 @@ TOOLS = [search_users, get_billing_info, apply_credit, send_reply]
 TOOL_MAP = {t.name: t for t in TOOLS}
 
 
-async def run_agent(llm, messages: list, handler: MyelinCallbackHandler) -> str:
+async def run_agent(llm, messages: list, handler) -> str:
     """Simple agent loop: call LLM, execute tools, repeat."""
     agent = llm.bind_tools(TOOLS)
 
@@ -68,73 +66,46 @@ async def run_agent(llm, messages: list, handler: MyelinCallbackHandler) -> str:
 
 
 async def main():
-    myelin = MyelinClient(api_key=os.environ["MYELIN_API_KEY"])
-    recall_resp = await myelin.recall("handle a billing credit request")
-    session = MyelinSession(myelin, recall_resp)
-    handler = MyelinCallbackHandler(client=myelin, session_id=session.session_id)
+    ticket_msg = (
+        "Ticket #5678: alice@example.com was charged twice for January. "
+        "Please apply a $49 credit and let them know."
+    )
 
-    llm = ChatOpenAI(model="gpt-4o-mini")
+    async with await MyelinSession.start("handle a billing credit request") as session:
+        handler = session.callback()
+        llm = ChatOpenAI(model="gpt-4o-mini")
 
-    if session.matched:
-        # --- HIT: We have a proven workflow ---
-        wf = session.workflow
-        print(f"Matched workflow: {wf.description}")
-        print(f"Success-proven procedure with {wf.total_steps} steps\n")
+        if session.matched:
+            wf = session.workflow
+            print(f"Matched workflow: {wf.description}")
+            print(f"Success-proven procedure with {wf.total_steps} steps\n")
 
-        # Build a system prompt that includes the workflow guidance
-        # The skeleton gives the high-level steps; hints give detail
-        hints = []
-        for step in range(1, wf.total_steps + 1):
-            h = await session.hint(step)
-            hints.append(f"Step {step}: {h.detail}")
+            system_prompt = await session.build_system_prompt()
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=ticket_msg),
+            ]
+        else:
+            print("No matching workflow found — working freestyle")
+            print("Myelin will record this session and extract a workflow if successful\n")
 
-        system_prompt = (
-            f"You are following a proven procedure for: {wf.description}\n\n"
-            f"Overview: {wf.overview}\n\n"
-            f"Steps:\n" + "\n".join(hints) + "\n\n"
-            "Adapt these steps to the specific request below. "
-            "Use the available tools to execute each step."
-        )
+            messages = [
+                SystemMessage(
+                    content=(
+                        "You are a billing support agent. Use the available tools "
+                        "to resolve the customer's issue."
+                    )
+                ),
+                HumanMessage(content=ticket_msg),
+            ]
 
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(
-                content=(
-                    "Ticket #5678: alice@example.com was charged twice for January. "
-                    "Please apply a $49 credit and let them know."
-                )
-            ),
-        ]
-    else:
-        # --- MISS: No workflow found, work freestyle ---
-        print("No matching workflow found — working freestyle")
-        print("Myelin will record this session and extract a workflow if successful\n")
+        response = await run_agent(llm, messages, handler)
+        print(f"Agent: {response}\n")
 
-        messages = [
-            SystemMessage(
-                content=(
-                    "You are a billing support agent. Use the available tools "
-                    "to resolve the customer's issue."
-                )
-            ),
-            HumanMessage(
-                content=(
-                    "Ticket #5678: alice@example.com was charged twice for January. "
-                    "Please apply a $49 credit and let them know."
-                )
-            ),
-        ]
-
-    response = await run_agent(llm, messages, handler)
-    print(f"Agent: {response}\n")
-
-    # Debrief — server evaluates and (on MISS) extracts a workflow
-    result = await session.debrief()
-    print(f"Recorded {result.tool_calls_recorded} tool calls")
-    if result.workflow_id:
-        print(f"New workflow extracted: {result.workflow_id}")
-
-    await myelin.close()
+        debrief = await session.debrief()
+        print(f"Recorded {debrief.tool_calls_recorded} tool calls")
+        if debrief.workflow_id:
+            print(f"New workflow extracted: {debrief.workflow_id}")
 
 
 if __name__ == "__main__":
