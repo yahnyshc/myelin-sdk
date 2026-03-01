@@ -6,6 +6,7 @@ import httpx
 
 from importlib.metadata import version as _pkg_version
 
+from .errors import raise_for_status
 from .redact import RedactionConfig, get_default_config, redact_dict, redact_string
 from .types import CaptureResponse, FinishResponse, HintResponse, HintsResponse, RecallResponse
 
@@ -41,7 +42,7 @@ class MyelinClient:
             "/v1/recall",
             json={"task_description": task_description, "agent_id": agent_id},
         )
-        resp.raise_for_status()
+        raise_for_status(resp)
         return RecallResponse(**resp.json())
 
     async def capture(
@@ -73,24 +74,24 @@ class MyelinClient:
         if reasoning:
             payload["reasoning"] = reasoning
         resp = await self._http.post("/v1/capture", json=payload)
-        resp.raise_for_status()
+        raise_for_status(resp)
         return CaptureResponse(**resp.json())
 
     async def finish(self, session_id: str) -> FinishResponse:
         resp = await self._http.post(f"/v1/sessions/{session_id}/finish")
-        resp.raise_for_status()
+        raise_for_status(resp)
         return FinishResponse(**resp.json())
 
     async def hint(self, session_id: str, step_number: int) -> HintResponse:
         resp = await self._http.get(
             f"/v1/sessions/{session_id}/hint/{step_number}"
         )
-        resp.raise_for_status()
+        raise_for_status(resp)
         return HintResponse(**resp.json())
 
     async def hints(self, session_id: str) -> HintsResponse:
         resp = await self._http.get(f"/v1/sessions/{session_id}/hints")
-        resp.raise_for_status()
+        raise_for_status(resp)
         return HintsResponse(**resp.json())
 
     async def close(self):

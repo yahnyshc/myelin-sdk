@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from myelin_sdk.client import MyelinClient
+from myelin_sdk.errors import MyelinAPIError
 
 
 def _make_transport(responses: list[dict]):
@@ -69,6 +70,12 @@ class TestRecall:
     async def test_recall_error(self):
         client = _client_with([{"status": 500, "json": {"error": "internal"}}])
         with pytest.raises(httpx.HTTPStatusError):
+            await client.recall("fail")
+        await client.close()
+
+    async def test_recall_error_is_myelin_api_error(self):
+        client = _client_with([{"status": 500, "json": {"error": "internal"}}])
+        with pytest.raises(MyelinAPIError):
             await client.recall("fail")
         await client.close()
 
@@ -242,3 +249,46 @@ class TestContextManager:
             resp = await client.recall("task")
             assert resp.session_id == "ses_1"
         # Client should be closed after exiting context
+
+
+class TestMyelinAPIError:
+    async def test_401_includes_hint(self):
+        client = _client_with([{"status": 401, "json": {"error": "Unauthorized"}}])
+        with pytest.raises(MyelinAPIError, match="Check your API key"):
+            await client.recall("task")
+        await client.close()
+
+    async def test_404_includes_hint(self):
+        client = _client_with([{"status": 404, "json": {"error": "Not found"}}])
+        with pytest.raises(MyelinAPIError, match="may have expired"):
+            await client.finish("ses_gone")
+        await client.close()
+
+    async def test_429_includes_hint(self):
+        client = _client_with([{"status": 429, "json": {"error": "Too many requests"}}])
+        with pytest.raises(MyelinAPIError, match="Rate limit"):
+            await client.recall("task")
+        await client.close()
+
+    async def test_server_error_message_in_detail(self):
+        client = _client_with([{"status": 500, "json": {"error": "DB connection lost"}}])
+        with pytest.raises(MyelinAPIError, match="DB connection lost"):
+            await client.recall("task")
+        await client.close()
+
+    async def test_caught_by_httpx_handler(self):
+        """MyelinAPIError is still caught by except httpx.HTTPStatusError."""
+        client = _client_with([{"status": 401, "json": {"error": "Unauthorized"}}])
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.recall("task")
+        await client.close()
+
+    async def test_error_format(self):
+        client = _client_with([{"status": 401, "json": {"error": "Unauthorized"}}])
+        try:
+            await client.recall("task")
+        except MyelinAPIError as e:
+            assert str(e).startswith("Myelin API error (401)")
+            assert "Unauthorized" in str(e)
+            assert e.status_code == 401
+        await client.close()
