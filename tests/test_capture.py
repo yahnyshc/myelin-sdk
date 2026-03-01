@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Thread
@@ -22,19 +23,31 @@ HOOK_PATH = (
     / "capture.py"
 )
 
-BASE_ENV = {
+_COMMON_ENV = {
     "PATH": os.environ.get("PATH", ""),
-    "TMPDIR": tempfile.gettempdir(),
     "MYELIN_URL": "http://localhost:19876",
     "MYELIN_API_KEY": "test-key",
 }
 
 
+@pytest.fixture
+def project_dir():
+    """Create a temporary directory to act as CLAUDE_PROJECT_DIR."""
+    with tempfile.TemporaryDirectory() as d:
+        yield d
+
+
+def _base_env(project_dir: str) -> dict:
+    return {**_COMMON_ENV, "CLAUDE_PROJECT_DIR": project_dir}
+
+
 def run_hook(
-    stdin_data: dict, env: dict | None = None, session_dir: str | None = None
+    stdin_data: dict,
+    project_dir: str,
+    env: dict | None = None,
 ) -> subprocess.CompletedProcess:
     """Run capture.py as a subprocess with the given stdin JSON and env."""
-    final_env = {**BASE_ENV, **(env or {})}
+    final_env = {**_base_env(project_dir), **(env or {})}
     return subprocess.run(
         [sys.executable, str(HOOK_PATH)],
         input=json.dumps(stdin_data),
@@ -45,156 +58,172 @@ def run_hook(
     )
 
 
-def session_file(cc_session_id: str) -> Path:
+def session_file(project_dir: str, cc_session_id: str) -> Path:
     import re
     safe_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", cc_session_id)
-    return Path(tempfile.gettempdir()) / f"myelin_session_{safe_id}"
+    return Path(project_dir) / ".claude" / ".myelin-sessions" / safe_id
 
 
 @pytest.fixture
 def cc_session_id():
-    """Provide a unique CC session ID and clean up its temp file after."""
-    sid = f"test_{os.getpid()}_{id(object())}"
-    yield sid
-    sf = session_file(sid)
-    sf.unlink(missing_ok=True)
+    """Provide a unique CC session ID."""
+    return f"test_{os.getpid()}_{id(object())}"
 
 
 class TestMissingFields:
-    def test_missing_tool_name(self, cc_session_id):
-        result = run_hook({"session_id": cc_session_id})
+    def test_missing_tool_name(self, cc_session_id, project_dir):
+        result = run_hook({"session_id": cc_session_id}, project_dir)
         assert result.returncode == 0
 
-    def test_missing_session_id(self):
-        result = run_hook({"tool_name": "Bash"})
+    def test_missing_session_id(self, project_dir):
+        result = run_hook({"tool_name": "Bash"}, project_dir)
         assert result.returncode == 0
 
-    def test_empty_stdin(self):
+    def test_empty_stdin(self, project_dir):
         result = subprocess.run(
             [sys.executable, str(HOOK_PATH)],
             input="",
             capture_output=True,
             text=True,
-            env=BASE_ENV,
+            env=_base_env(project_dir),
             timeout=10,
         )
         assert result.returncode == 0
 
-    def test_invalid_json(self):
+    def test_invalid_json(self, project_dir):
         result = subprocess.run(
             [sys.executable, str(HOOK_PATH)],
             input="not json",
             capture_output=True,
             text=True,
-            env=BASE_ENV,
+            env=_base_env(project_dir),
             timeout=10,
         )
         assert result.returncode == 0
 
 
 class TestRecall:
-    def test_creates_session_file(self, cc_session_id):
+    def test_creates_session_file(self, cc_session_id, project_dir):
         result = run_hook({
             "tool_name": "mcp__myelin__memory_recall",
             "session_id": cc_session_id,
             "tool_response": {"session_id": "ses_abc123"},
-        })
+        }, project_dir)
         assert result.returncode == 0
-        sf = session_file(cc_session_id)
+        sf = session_file(project_dir, cc_session_id)
         assert sf.exists()
         assert sf.read_text() == "ses_abc123"
 
-    def test_nested_result_string(self, cc_session_id):
+    def test_nested_result_string(self, cc_session_id, project_dir):
         """Handle {result: '{"session_id": "..."}'}."""
         result = run_hook({
             "tool_name": "mcp__myelin__memory_recall",
             "session_id": cc_session_id,
             "tool_response": {"result": json.dumps({"session_id": "ses_nested"})},
-        })
+        }, project_dir)
         assert result.returncode == 0
-        assert session_file(cc_session_id).read_text() == "ses_nested"
+        assert session_file(project_dir, cc_session_id).read_text() == "ses_nested"
 
-    def test_nested_result_object(self, cc_session_id):
+    def test_nested_result_object(self, cc_session_id, project_dir):
         """Handle {result: {session_id: "..."}}."""
         result = run_hook({
             "tool_name": "mcp__myelin__memory_recall",
             "session_id": cc_session_id,
             "tool_response": {"result": {"session_id": "ses_obj"}},
-        })
+        }, project_dir)
         assert result.returncode == 0
-        assert session_file(cc_session_id).read_text() == "ses_obj"
+        assert session_file(project_dir, cc_session_id).read_text() == "ses_obj"
 
-    def test_string_response(self, cc_session_id):
+    def test_string_response(self, cc_session_id, project_dir):
         """Handle tool_response as a raw JSON string."""
         result = run_hook({
             "tool_name": "mcp__myelin__memory_recall",
             "session_id": cc_session_id,
             "tool_response": json.dumps({"session_id": "ses_str"}),
-        })
+        }, project_dir)
         assert result.returncode == 0
-        assert session_file(cc_session_id).read_text() == "ses_str"
+        assert session_file(project_dir, cc_session_id).read_text() == "ses_str"
 
-    def test_missing_env_vars(self, cc_session_id):
+    def test_missing_env_vars(self, cc_session_id, project_dir):
         result = run_hook(
             {
                 "tool_name": "mcp__myelin__memory_recall",
                 "session_id": cc_session_id,
                 "tool_response": {"session_id": "ses_x"},
             },
+            project_dir,
             env={"MYELIN_URL": "", "MYELIN_API_KEY": ""},
         )
         assert result.returncode == 2
         assert "MYELIN_URL" in result.stderr
 
-    def test_no_session_id_in_response(self, cc_session_id):
+    def test_no_session_id_in_response(self, cc_session_id, project_dir):
         """If tool_response has no session_id, don't create file."""
         result = run_hook({
             "tool_name": "mcp__myelin__memory_recall",
             "session_id": cc_session_id,
             "tool_response": {"matches": []},
-        })
+        }, project_dir)
         assert result.returncode == 0
-        assert not session_file(cc_session_id).exists()
+        assert not session_file(project_dir, cc_session_id).exists()
+
+    def test_no_project_dir_skips_session_file(self, cc_session_id):
+        """Without CLAUDE_PROJECT_DIR, recall succeeds but no file is written."""
+        env = {**_COMMON_ENV, "CLAUDE_PROJECT_DIR": ""}
+        result = subprocess.run(
+            [sys.executable, str(HOOK_PATH)],
+            input=json.dumps({
+                "tool_name": "mcp__myelin__memory_recall",
+                "session_id": cc_session_id,
+                "tool_response": {"session_id": "ses_noproj"},
+            }),
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=10,
+        )
+        assert result.returncode == 0
 
 
 class TestDebrief:
-    def test_deletes_session_file(self, cc_session_id):
-        sf = session_file(cc_session_id)
+    def test_deletes_session_file(self, cc_session_id, project_dir):
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_todelete")
 
         result = run_hook({
             "tool_name": "mcp__myelin__memory_debrief",
             "session_id": cc_session_id,
-        })
+        }, project_dir)
         assert result.returncode == 0
         assert not sf.exists()
 
-    def test_missing_file_ok(self, cc_session_id):
+    def test_missing_file_ok(self, cc_session_id, project_dir):
         result = run_hook({
             "tool_name": "mcp__myelin__memory_debrief",
             "session_id": cc_session_id,
-        })
+        }, project_dir)
         assert result.returncode == 0
 
 
 class TestSkipMyelinTools:
-    def test_skips_own_tools(self, cc_session_id):
+    def test_skips_own_tools(self, cc_session_id, project_dir):
         result = run_hook({
             "tool_name": "mcp__myelin__some_other_tool",
             "session_id": cc_session_id,
-        })
+        }, project_dir)
         assert result.returncode == 0
 
 
 class TestNoActiveSession:
-    def test_no_session_file_skips(self, cc_session_id):
-        session_file(cc_session_id).unlink(missing_ok=True)
+    def test_no_session_file_skips(self, cc_session_id, project_dir):
+        session_file(project_dir, cc_session_id).unlink(missing_ok=True)
         result = run_hook({
             "tool_name": "Bash",
             "session_id": cc_session_id,
             "tool_input": {"command": "ls"},
             "tool_response": "file1\nfile2",
-        })
+        }, project_dir)
         assert result.returncode == 0
 
 
@@ -227,8 +256,9 @@ def capture_server():
 
 
 class TestCapture:
-    def test_posts_to_server(self, cc_session_id, capture_server):
-        sf = session_file(cc_session_id)
+    def test_posts_to_server(self, cc_session_id, project_dir, capture_server):
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_capture")
 
         result = run_hook({
@@ -236,7 +266,7 @@ class TestCapture:
             "session_id": cc_session_id,
             "tool_input": {"command": "echo hello"},
             "tool_response": "hello",
-        })
+        }, project_dir)
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
         body = CaptureHandler.captured[0]
@@ -247,8 +277,9 @@ class TestCapture:
         assert isinstance(body["client_ts"], float)
         assert body["client_ts"] > 0
 
-    def test_truncates_long_response(self, cc_session_id, capture_server):
-        sf = session_file(cc_session_id)
+    def test_truncates_long_response(self, cc_session_id, project_dir, capture_server):
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_trunc")
 
         long_response = "x" * 20000
@@ -257,7 +288,7 @@ class TestCapture:
             "session_id": cc_session_id,
             "tool_input": {"path": "/file"},
             "tool_response": long_response,
-        })
+        }, project_dir)
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
         resp = CaptureHandler.captured[0]["tool_response"]
@@ -265,9 +296,10 @@ class TestCapture:
         assert resp.endswith("x" * 4000)
         assert "20000 chars" in resp
 
-    def test_captures_reasoning_from_transcript(self, cc_session_id, capture_server):
+    def test_captures_reasoning_from_transcript(self, cc_session_id, project_dir, capture_server):
         """Reasoning is extracted from the transcript and sent in the payload."""
-        sf = session_file(cc_session_id)
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_reasoning")
 
         transcript = tempfile.NamedTemporaryFile(
@@ -294,7 +326,7 @@ class TestCapture:
                 "transcript_path": transcript.name,
                 "tool_input": {"path": "/etc/config"},
                 "tool_response": "key=value",
-            })
+            }, project_dir)
             assert result.returncode == 0
             assert len(CaptureHandler.captured) == 1
             body = CaptureHandler.captured[0]
@@ -304,9 +336,10 @@ class TestCapture:
         finally:
             os.unlink(transcript.name)
 
-    def test_no_reasoning_without_transcript(self, cc_session_id, capture_server):
+    def test_no_reasoning_without_transcript(self, cc_session_id, project_dir, capture_server):
         """No reasoning field when transcript_path is missing."""
-        sf = session_file(cc_session_id)
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_noreason")
 
         result = run_hook({
@@ -315,14 +348,15 @@ class TestCapture:
             "tool_use_id": "toolu_noreason",
             "tool_input": {"command": "ls"},
             "tool_response": "file1",
-        })
+        }, project_dir)
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
         assert "reasoning" not in CaptureHandler.captured[0]
 
-    def test_http_error_exits_zero(self, cc_session_id):
+    def test_http_error_exits_zero(self, cc_session_id, project_dir):
         """Network failure (no server) should not block the agent."""
-        sf = session_file(cc_session_id)
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_fail")
 
         result = run_hook(
@@ -332,6 +366,7 @@ class TestCapture:
                 "tool_input": {},
                 "tool_response": "out",
             },
+            project_dir,
             env={"MYELIN_URL": "http://127.0.0.1:19877", "MYELIN_API_KEY": "k"},
         )
         assert result.returncode == 0
@@ -356,9 +391,10 @@ class TestRedaction:
         yield f.name
         os.unlink(f.name)
 
-    def test_api_key_in_input_redacted(self, cc_session_id, capture_server, redaction_config):
+    def test_api_key_in_input_redacted(self, cc_session_id, project_dir, capture_server, redaction_config):
         """API key in tool_input is redacted when redaction.json is present."""
-        sf = session_file(cc_session_id)
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_redact1")
 
         result = run_hook(
@@ -368,6 +404,7 @@ class TestRedaction:
                 "tool_input": {"api_key": "sk-ant-api03-realsecretkeythatshouldbe"},
                 "tool_response": "ok",
             },
+            project_dir,
             env={"MYELIN_REDACTION_CONFIG": redaction_config},
         )
         assert result.returncode == 0
@@ -375,9 +412,10 @@ class TestRedaction:
         body = CaptureHandler.captured[0]
         assert body["tool_input"]["api_key"] == "[REDACTED]"
 
-    def test_bearer_in_response_redacted(self, cc_session_id, capture_server, redaction_config):
+    def test_bearer_in_response_redacted(self, cc_session_id, project_dir, capture_server, redaction_config):
         """Bearer token in tool_response is redacted."""
-        sf = session_file(cc_session_id)
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_redact2")
 
         result = run_hook(
@@ -387,6 +425,7 @@ class TestRedaction:
                 "tool_input": {"command": "curl"},
                 "tool_response": "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.test",
             },
+            project_dir,
             env={"MYELIN_REDACTION_CONFIG": redaction_config},
         )
         assert result.returncode == 0
@@ -394,9 +433,10 @@ class TestRedaction:
         body = CaptureHandler.captured[0]
         assert "Bearer" not in body["tool_response"] or "[REDACTED]" in body["tool_response"]
 
-    def test_redact_disabled_via_env(self, cc_session_id, capture_server):
+    def test_redact_disabled_via_env(self, cc_session_id, project_dir, capture_server):
         """MYELIN_REDACT=0 disables redaction."""
-        sf = session_file(cc_session_id)
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_redact3")
 
         secret = "sk-ant-api03-realsecretkeythatshouldbe"
@@ -407,6 +447,7 @@ class TestRedaction:
                 "tool_input": {"key": secret},
                 "tool_response": "ok",
             },
+            project_dir,
             env={"MYELIN_REDACT": "0"},
         )
         assert result.returncode == 0
@@ -415,9 +456,10 @@ class TestRedaction:
         # Secret should pass through unredacted
         assert body["tool_input"]["key"] == secret
 
-    def test_no_config_file_passthrough(self, cc_session_id, capture_server):
+    def test_no_config_file_passthrough(self, cc_session_id, project_dir, capture_server):
         """Without redaction.json, secrets pass through."""
-        sf = session_file(cc_session_id)
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_redact4")
 
         secret = "sk-ant-api03-realsecretkeythatshouldbe"
@@ -426,7 +468,7 @@ class TestRedaction:
             "session_id": cc_session_id,
             "tool_input": {"key": secret},
             "tool_response": "ok",
-        })
+        }, project_dir)
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
         body = CaptureHandler.captured[0]
@@ -434,12 +476,13 @@ class TestRedaction:
 
 
 class TestDebugMode:
-    def test_debug_logging(self, cc_session_id):
+    def test_debug_logging(self, cc_session_id, project_dir):
         result = run_hook(
             {
                 "tool_name": "Bash",
                 "session_id": cc_session_id,
             },
+            project_dir,
             env={"MYELIN_DEBUG": "1"},
         )
         assert result.returncode == 0
@@ -449,34 +492,35 @@ class TestDebugMode:
 class TestPathTraversal:
     """Verify session_file_path sanitizes untrusted cc_session_id."""
 
-    def test_traversal_slashes(self):
+    def test_traversal_slashes(self, project_dir):
         """../../../etc/passwd should be sanitized to underscores."""
         malicious_id = "../../../etc/passwd"
-        sf = session_file(malicious_id)
-        assert ".." not in str(sf.name)
+        sf = session_file(project_dir, malicious_id)
+        assert ".." not in sf.name
         assert "/" not in sf.name
-        assert sf.parent == Path(tempfile.gettempdir())
+        sessions_dir = Path(project_dir) / ".claude" / ".myelin-sessions"
+        assert sf.parent == sessions_dir
 
-    def test_traversal_creates_safe_file(self):
-        """A malicious session ID should still create a file in the temp dir."""
+    def test_traversal_creates_safe_file(self, project_dir):
+        """A malicious session ID should still create a file in the sessions dir."""
         malicious_id = "../../evil"
         result = run_hook({
             "tool_name": "mcp__myelin__memory_recall",
             "session_id": malicious_id,
             "tool_response": {"session_id": "ses_safe"},
-        })
+        }, project_dir)
         assert result.returncode == 0
-        sf = session_file(malicious_id)
-        assert sf.parent == Path(tempfile.gettempdir())
+        sf = session_file(project_dir, malicious_id)
+        sessions_dir = Path(project_dir) / ".claude" / ".myelin-sessions"
+        assert sf.parent == sessions_dir
         if sf.exists():
             assert sf.read_text() == "ses_safe"
-            sf.unlink()
 
-    def test_normal_id_unchanged(self):
+    def test_normal_id_unchanged(self, project_dir):
         """Normal alphanumeric IDs should pass through unchanged."""
         normal_id = "abc-123_def"
-        sf = session_file(normal_id)
-        assert sf.name == f"myelin_session_{normal_id}"
+        sf = session_file(project_dir, normal_id)
+        assert sf.name == normal_id
 
 
 class TestEnvQuoteStripping:
@@ -499,13 +543,43 @@ class TestEnvQuoteStripping:
                     "session_id": "test_quote_strip",
                     "tool_response": {"session_id": "ses_q"},
                 },
+                project_dir,
                 env={
                     "MYELIN_URL": "",
                     "MYELIN_API_KEY": "",
-                    "CLAUDE_PROJECT_DIR": project_dir,
                 },
             )
             # Should fail because stripped URL points to nonexistent server,
             # but the important thing is it tried (returncode 2 means env was loaded)
             # With empty MYELIN_URL after stripping it would report missing env
             assert result.returncode in (0, 2)
+
+
+class TestStaleCleanup:
+    """Verify stale session files are cleaned up on recall."""
+
+    def test_stale_files_removed(self, cc_session_id, project_dir):
+        """Files older than 25 hours are removed on recall."""
+        sessions_dir = Path(project_dir) / ".claude" / ".myelin-sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create a stale file (set mtime to 26 hours ago)
+        stale_file = sessions_dir / "old_session"
+        stale_file.write_text("ses_old")
+        old_time = time.time() - 26 * 3600
+        os.utime(stale_file, (old_time, old_time))
+
+        # Create a recent file (should survive)
+        recent_file = sessions_dir / "recent_session"
+        recent_file.write_text("ses_recent")
+
+        # Trigger recall which runs cleanup
+        run_hook({
+            "tool_name": "mcp__myelin__memory_recall",
+            "session_id": cc_session_id,
+            "tool_response": {"session_id": "ses_new"},
+        }, project_dir)
+
+        assert not stale_file.exists(), "stale file should be removed"
+        assert recent_file.exists(), "recent file should survive"
+        assert session_file(project_dir, cc_session_id).read_text() == "ses_new"

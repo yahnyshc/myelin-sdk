@@ -10,7 +10,6 @@ import json
 import os
 import re
 import sys
-import tempfile
 import time
 import urllib.request
 import urllib.error
@@ -162,9 +161,31 @@ def debug(msg: str) -> None:
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9_\-]")
 
 
-def session_file_path(cc_session_id: str) -> str:
+_SESSIONS_DIR_NAME = ".myelin-sessions"
+
+
+def session_file_path(cc_session_id: str) -> str | None:
+    """Return path to session tracking file, or None if CLAUDE_PROJECT_DIR is unset."""
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if not project_dir:
+        return None
     safe_id = _SAFE_ID.sub("_", cc_session_id)
-    return os.path.join(tempfile.gettempdir(), f"myelin_session_{safe_id}")
+    return os.path.join(project_dir, ".claude", _SESSIONS_DIR_NAME, safe_id)
+
+
+def _cleanup_stale_session_files(sessions_dir: str, max_age_hours: int = 25) -> None:
+    """Remove session files older than max_age_hours. Best-effort, stdlib-only."""
+    cutoff = time.time() - max_age_hours * 3600
+    try:
+        for name in os.listdir(sessions_dir):
+            path = os.path.join(sessions_dir, name)
+            try:
+                if os.stat(path).st_mtime < cutoff:
+                    os.remove(path)
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def extract_reasoning_from_transcript(transcript_path: str, tool_use_id: str) -> str | None:
@@ -401,7 +422,10 @@ def main() -> int:
             return 2
 
         sid = extract_session_id(data.get("tool_response"))
-        if sid:
+        if sid and session_file:
+            sessions_dir = os.path.dirname(session_file)
+            os.makedirs(sessions_dir, exist_ok=True)
+            _cleanup_stale_session_files(sessions_dir)
             with open(session_file, "w") as f:
                 f.write(sid)
             debug(f"session started: {sid}")
@@ -409,10 +433,11 @@ def main() -> int:
 
     # 2. debrief — clean up
     if tool_name == DEBRIEF:
-        try:
-            os.remove(session_file)
-        except FileNotFoundError:
-            pass
+        if session_file:
+            try:
+                os.remove(session_file)
+            except FileNotFoundError:
+                pass
         debug("session file cleaned up")
         return 0
 
@@ -421,6 +446,8 @@ def main() -> int:
         return 0
 
     # 4. No active session — nothing to do
+    if not session_file:
+        return 0
     try:
         with open(session_file) as f:
             myelin_sid = f.read().strip()

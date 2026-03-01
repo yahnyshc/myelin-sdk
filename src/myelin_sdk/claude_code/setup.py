@@ -228,7 +228,7 @@ def _gitignore_entries_needed() -> list[str]:
     if gitignore_path.exists():
         existing = set(gitignore_path.read_text().splitlines())
 
-    for entry in [".mcp.json", ".claude/hooks/.env"]:
+    for entry in [".mcp.json", ".claude/hooks/.env", ".claude/.myelin-sessions/"]:
         if entry not in existing:
             needed.append(entry)
     return needed

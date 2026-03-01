@@ -114,7 +114,7 @@ class TestGitignoreEntries:
         assert ".claude/hooks/.env" in needed
 
     def test_complete_gitignore(self, project_dir):
-        Path(".gitignore").write_text(".mcp.json\n.claude/hooks/.env\n")
+        Path(".gitignore").write_text(".mcp.json\n.claude/hooks/.env\n.claude/.myelin-sessions/\n")
         needed = _gitignore_entries_needed()
         assert needed == []
 
