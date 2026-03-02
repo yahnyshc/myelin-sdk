@@ -281,7 +281,7 @@ class RedactionConfig:
 def redact_string(text: str, config: "RedactionConfig | None" = None) -> str:
     """Apply regex patterns to scrub secrets from a string."""
     if config is None:
-        config = _get_default()
+        config = get_default_config()
     if not config.enabled or not text:
         return text
     for _name, pattern in config._compiled:
@@ -294,7 +294,7 @@ def redact_dict(
 ) -> dict:
     """Scrub sensitive dict values by key name, then regex-scan all string values."""
     if config is None:
-        config = _get_default()
+        config = get_default_config()
     if not config.enabled:
         return data
     return _redact_value(data, config)
@@ -328,11 +328,6 @@ def get_default_config() -> RedactionConfig:
     if _default_config is None:
         _default_config = RedactionConfig()
     return _default_config
-
-
-def _get_default() -> RedactionConfig:
-    """Internal alias for get_default_config."""
-    return get_default_config()
 
 
 def build_default_redaction_dict() -> dict:
