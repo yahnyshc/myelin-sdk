@@ -224,18 +224,6 @@ class TestLangchainHandler:
         assert handler._hide_inputs is hide_in
         assert handler._hide_outputs is hide_out
 
-    def test_callback_deprecation_warning(self, mock_client, recall_hit, patch_langchain):
-        session = MyelinSession(mock_client, recall_hit)
-        import warnings
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            handler = session.callback()
-            assert len(w) == 1
-            assert issubclass(w[0].category, DeprecationWarning)
-            assert "langchain_handler" in str(w[0].message)
-        assert handler._session_id == recall_hit.session_id
-
 
 class TestSteps:
     async def test_yields_tuples_on_hit(self, mock_client, recall_hit):

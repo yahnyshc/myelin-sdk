@@ -26,7 +26,6 @@ BUILTIN_PATTERNS: list[dict] = [
         "name": "aws_secret_key",
         "pattern": r"(?<![A-Za-z0-9/+=])([A-Za-z0-9/+=]{40})(?![A-Za-z0-9/+=])",
         "description": "AWS secret access key (40-char base64)",
-        # Only matched when near an AWS context — see _is_aws_secret_context
         "_context_required": True,
     },
     # Git — GitHub

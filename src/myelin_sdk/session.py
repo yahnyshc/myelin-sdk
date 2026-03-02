@@ -11,7 +11,7 @@ from .redact import RedactionConfig
 from .types import CaptureResponse, FeedbackResponse, FinishResponse, HintResponse, RecallResponse, WorkflowInfo
 
 if TYPE_CHECKING:
-    from typing import Any, Callable
+    from typing import Callable
 
 
 class MyelinSession:
@@ -110,27 +110,6 @@ class MyelinSession:
         return MyelinCallbackHandler(
             client=self._client,
             session_id=self.session_id,
-            hide_inputs=hide_inputs,
-            hide_outputs=hide_outputs,
-            redaction=redaction,
-        )
-
-    def callback(
-        self,
-        *,
-        hide_inputs: Callable | None = None,
-        hide_outputs: Callable | None = None,
-        redaction: RedactionConfig | None = None,
-    ):
-        """Deprecated: use ``langchain_handler()`` instead."""
-        import warnings
-
-        warnings.warn(
-            "callback() is deprecated, use langchain_handler() instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.langchain_handler(
             hide_inputs=hide_inputs,
             hide_outputs=hide_outputs,
             redaction=redaction,
