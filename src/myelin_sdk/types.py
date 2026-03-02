@@ -22,6 +22,11 @@ class CaptureResponse(BaseModel):
     status: str
 
 
+class FeedbackResponse(BaseModel):
+    session_id: str
+    status: str
+
+
 class FinishResponse(BaseModel):
     session_id: str
     tool_calls_recorded: int

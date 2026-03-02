@@ -9,7 +9,7 @@ from ...client import MyelinClient
 from ...redact import RedactionConfig
 from .handler import MyelinCallbackHandler
 from .state import _MyelinToolState
-from .tools import MemoryFinishTool, MemoryHintTool, MemoryRecallTool
+from .tools import MemoryFeedbackTool, MemoryFinishTool, MemoryHintTool, MemoryRecallTool
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,9 @@ class MyelinToolkit:
         self._hint_tool = MemoryHintTool(
             client=self._client, state=self._state
         )
+        self._feedback_tool = MemoryFeedbackTool(
+            client=self._client, state=self._state
+        )
         self._finish_tool = MemoryFinishTool(
             client=self._client, state=self._state
         )
@@ -67,7 +70,7 @@ class MyelinToolkit:
 
     @property
     def tools(self) -> list[Any]:
-        return [self._recall_tool, self._hint_tool, self._finish_tool]
+        return [self._recall_tool, self._hint_tool, self._feedback_tool, self._finish_tool]
 
     @property
     def handler(self) -> MyelinCallbackHandler:

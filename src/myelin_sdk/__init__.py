@@ -5,6 +5,7 @@ from .redact import RedactionConfig
 from .session import MyelinSession
 from .types import (
     CaptureResponse,
+    FeedbackResponse,
     FinishResponse,
     HintResponse,
     HintsResponse,
@@ -19,6 +20,7 @@ __all__ = [
     "MyelinSession",
     "RedactionConfig",
     "CaptureResponse",
+    "FeedbackResponse",
     "FinishResponse",
     "HintResponse",
     "HintsResponse",

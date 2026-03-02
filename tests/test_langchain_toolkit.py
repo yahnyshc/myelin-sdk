@@ -22,13 +22,13 @@ def _mock_client():
 
 
 class TestToolkitCreation:
-    def test_creates_three_tools(self):
+    def test_creates_four_tools(self):
         from myelin_sdk.integrations.langchain.toolkit import MyelinToolkit
 
         tk = MyelinToolkit(api_key="test_key")
-        assert len(tk.tools) == 3
+        assert len(tk.tools) == 4
         names = {t.name for t in tk.tools}
-        assert names == {"memory_recall", "memory_hint", "memory_finish"}
+        assert names == {"memory_recall", "memory_hint", "memory_feedback", "memory_finish"}
 
     def test_handler_is_created(self):
         from myelin_sdk.integrations.langchain.handler import MyelinCallbackHandler

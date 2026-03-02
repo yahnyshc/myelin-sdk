@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 _SKIP_TOOLS: frozenset[str] = frozenset({
     "memory_recall",
     "memory_hint",
+    "memory_feedback",
     "memory_finish",
 })
 
