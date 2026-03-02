@@ -341,7 +341,11 @@ def main() -> int:
     if tool_name.startswith(MYELIN_TOOL_PREFIX):
         return 0
 
-    # 4. No active session — nothing to do
+    # 4. Skip Claude Code internal bookkeeping tools
+    if tool_name in ("TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite"):
+        return 0
+
+    # 5. No active session — nothing to do
     if not session_file:
         return 0
     try:
@@ -350,7 +354,7 @@ def main() -> int:
     except FileNotFoundError:
         return 0
 
-    # 5. Capture the tool call
+    # 6. Capture the tool call
     if not myelin_url or not myelin_key:
         debug("skipping capture: MYELIN_URL or MYELIN_API_KEY not set")
         return 0
