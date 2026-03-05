@@ -78,6 +78,7 @@ class MyelinClient:
         return CaptureResponse(**resp.json())
 
     async def feedback(self, session_id: str, notes: str) -> FeedbackResponse:
+        """Append a timestamped note to the session. Call often, not just at the end."""
         resp = await self._http.post(
             f"/v1/sessions/{session_id}/feedback",
             json={"notes": notes},

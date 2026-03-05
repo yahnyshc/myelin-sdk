@@ -84,6 +84,12 @@ class MyelinSession:
         )
 
     async def feedback(self, notes: str) -> FeedbackResponse:
+        """Jot down what just happened — a decision, error, or discovery.
+
+        Call this throughout the session whenever something noteworthy occurs,
+        not as a summary at the end. Each call appends a separate timestamped
+        note. Short and frequent beats long and once.
+        """
         if not self._active:
             raise RuntimeError("Session already finished")
         return await self._client.feedback(self.session_id, notes)
