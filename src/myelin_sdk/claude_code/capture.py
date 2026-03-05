@@ -341,8 +341,23 @@ def main() -> int:
     if tool_name.startswith(MYELIN_TOOL_PREFIX):
         return 0
 
-    # 4. Skip Claude Code internal bookkeeping tools
-    if tool_name in ("TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoWrite"):
+    # 4. Skip Claude Code internal / read-only tools
+    #    Only action tools (Edit, Write, Bash, NotebookEdit, WebFetch,
+    #    WebSearch, Computer) are captured. Everything else is navigation,
+    #    planning, or coordination noise.
+    if tool_name in (
+        # Task management & planning
+        "TaskCreate", "TaskUpdate", "TaskList", "TaskGet",
+        "TodoWrite", "TodoRead", "ToolSearch",
+        "EnterPlanMode", "ExitPlanMode", "AskUserQuestion",
+        # Read-only / navigation
+        "Glob", "Grep", "Read", "LS", "NotebookRead", "LSP",
+        # Agent coordination
+        "Agent", "TeamCreate", "TeamDelete", "SendMessage",
+        "EnterWorktree", "Skill",
+        # Process management
+        "TaskOutput", "TaskStop",
+    ):
         return 0
 
     # 5. No active session — nothing to do
