@@ -41,10 +41,12 @@ class MyelinClient:
         return ListWorkflowsResponse(**resp.json())
 
     async def recall(
-        self, task_description: str, agent_id: str = "default",
+        self, task_description: str | None = None, agent_id: str = "default",
         workflow_id: str | None = None,
     ) -> RecallResponse:
-        payload: dict = {"task_description": task_description, "agent_id": agent_id}
+        payload: dict = {"agent_id": agent_id}
+        if task_description:
+            payload["task_description"] = task_description
         if workflow_id:
             payload["workflow_id"] = workflow_id
         resp = await self._http.post("/v1/recall", json=payload)
