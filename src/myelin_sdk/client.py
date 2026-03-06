@@ -8,7 +8,7 @@ from importlib.metadata import version as _pkg_version
 
 from .errors import raise_for_status
 from .redact import RedactionConfig, get_default_config, redact_dict, redact_string
-from .types import CaptureResponse, FeedbackResponse, FinishResponse, RecallResponse
+from .types import CaptureResponse, FeedbackResponse, FinishResponse, ListWorkflowsResponse, RecallResponse
 
 _VERSION = _pkg_version("myelin-sdk")
 
@@ -35,13 +35,19 @@ class MyelinClient:
             redaction if redaction is not None else get_default_config()
         )
 
+    async def list_workflows(self) -> ListWorkflowsResponse:
+        resp = await self._http.get("/v1/workflows")
+        raise_for_status(resp)
+        return ListWorkflowsResponse(**resp.json())
+
     async def recall(
-        self, task_description: str, agent_id: str = "default"
+        self, task_description: str, agent_id: str = "default",
+        workflow_id: str | None = None,
     ) -> RecallResponse:
-        resp = await self._http.post(
-            "/v1/recall",
-            json={"task_description": task_description, "agent_id": agent_id},
-        )
+        payload: dict = {"task_description": task_description, "agent_id": agent_id}
+        if workflow_id:
+            payload["workflow_id"] = workflow_id
+        resp = await self._http.post("/v1/recall", json=payload)
         raise_for_status(resp)
         return RecallResponse(**resp.json())
 

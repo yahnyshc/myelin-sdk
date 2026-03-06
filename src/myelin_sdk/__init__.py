@@ -7,6 +7,8 @@ from .types import (
     CaptureResponse,
     FeedbackResponse,
     FinishResponse,
+    ListWorkflowItem,
+    ListWorkflowsResponse,
     RecallResponse,
     WorkflowInfo,
 )
@@ -20,6 +22,8 @@ __all__ = [
     "CaptureResponse",
     "FeedbackResponse",
     "FinishResponse",
+    "ListWorkflowItem",
+    "ListWorkflowsResponse",
     "RecallResponse",
     "WorkflowInfo",
     "__version__",

@@ -16,6 +16,19 @@ class RecallResponse(BaseModel):
     workflow: WorkflowInfo | None = None
 
 
+class ListWorkflowItem(BaseModel):
+    workflow_id: str
+    description: str
+    sessions_passed: int = 0
+    sessions_total: int = 0
+    avg_reward: float | None = None
+
+
+class ListWorkflowsResponse(BaseModel):
+    workflows: list[ListWorkflowItem] = []
+    count: int = 0
+
+
 class CaptureResponse(BaseModel):
     status: str
 
