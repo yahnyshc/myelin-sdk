@@ -9,7 +9,7 @@ from ...client import MyelinClient
 from ...redact import RedactionConfig
 from .handler import MyelinCallbackHandler
 from .state import _MyelinToolState
-from .tools import MemoryFeedbackTool, MemoryFinishTool, MemoryHintTool, MemoryRecallTool
+from .tools import MemoryFeedbackTool, MemoryFinishTool, MemoryRecallTool
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class MyelinToolkit:
     """Produces LangChain tools + callback handler linked via shared state.
 
-    The agent calls ``memory_recall``, ``memory_hint``, ``memory_finish``
+    The agent calls ``memory_recall``, ``memory_finish``
     autonomously; the handler captures all other tool calls.
 
     Usage::
@@ -49,9 +49,6 @@ class MyelinToolkit:
         self._recall_tool = MemoryRecallTool(
             client=self._client, state=self._state, agent_id=agent_id
         )
-        self._hint_tool = MemoryHintTool(
-            client=self._client, state=self._state
-        )
         self._feedback_tool = MemoryFeedbackTool(
             client=self._client, state=self._state
         )
@@ -70,7 +67,7 @@ class MyelinToolkit:
 
     @property
     def tools(self) -> list[Any]:
-        return [self._recall_tool, self._hint_tool, self._feedback_tool, self._finish_tool]
+        return [self._recall_tool, self._feedback_tool, self._finish_tool]
 
     @property
     def handler(self) -> MyelinCallbackHandler:

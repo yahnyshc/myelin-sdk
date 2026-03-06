@@ -6,10 +6,8 @@ from pydantic import BaseModel
 class WorkflowInfo(BaseModel):
     id: str
     description: str
-    total_steps: int
     overview: str
-    skeleton: str
-    steps: list[str] = []
+    content: str
 
 
 class RecallResponse(BaseModel):
@@ -35,12 +33,3 @@ class FinishResponse(BaseModel):
     warning: str | None = None
 
 
-class HintResponse(BaseModel):
-    session_id: str
-    step_number: int
-    detail: str
-
-
-class HintsResponse(BaseModel):
-    session_id: str
-    hints: dict[int, str]

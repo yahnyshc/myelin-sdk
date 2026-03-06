@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from .client import MyelinClient
 from .redact import RedactionConfig
-from .types import CaptureResponse, FeedbackResponse, FinishResponse, HintResponse, RecallResponse, WorkflowInfo
+from .types import CaptureResponse, FeedbackResponse, FinishResponse, RecallResponse, WorkflowInfo
 
 if TYPE_CHECKING:
     from typing import Callable
@@ -101,9 +100,6 @@ class MyelinSession:
         self._active = False
         return result
 
-    async def hint(self, step_number: int) -> HintResponse:
-        return await self._client.hint(self.session_id, step_number)
-
     def langchain_handler(
         self,
         *,
@@ -121,23 +117,15 @@ class MyelinSession:
             redaction=redaction,
         )
 
-    async def steps(self) -> AsyncIterator[tuple[int, str]]:
-        if not self.matched or not self.workflow:
-            return
-        resp = await self._client.hints(self.session_id)
-        for step_num in sorted(resp.hints):
-            yield step_num, resp.hints[step_num]
-
-    async def build_system_prompt(self, *, preamble: str = "") -> str | None:
+    def build_system_prompt(self, *, preamble: str = "") -> str | None:
         if not self.matched or not self.workflow:
             return None
         wf = self.workflow
-        hints = [f"Step {n}: {d}" async for n, d in self.steps()]
         prompt = (
             f"You are following a proven procedure for: {wf.description}\n\n"
             f"Overview: {wf.overview}\n\n"
-            f"Steps:\n" + "\n".join(hints) + "\n\n"
-            "Adapt these steps to the specific request. "
+            f"{wf.content}\n\n"
+            "Adapt these instructions to the specific request. "
             "Use the available tools to execute each step."
         )
         return preamble.rstrip() + "\n\n" + prompt if preamble else prompt

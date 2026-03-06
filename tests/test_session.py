@@ -8,8 +8,6 @@ from myelin_sdk.session import MyelinSession
 from myelin_sdk.types import (
     CaptureResponse,
     FinishResponse,
-    HintResponse,
-    HintsResponse,
     RecallResponse,
     WorkflowInfo,
 )
@@ -22,12 +20,6 @@ def mock_client():
     client.finish.return_value = FinishResponse(
         session_id="ses_1", tool_calls_recorded=3, status="evaluated"
     )
-    client.hint.return_value = HintResponse(
-        session_id="ses_1", step_number=1, detail="Do the thing"
-    )
-    client.hints.return_value = HintsResponse(
-        session_id="ses_1", hints={1: "First", 2: "Second"}
-    )
     return client
 
 
@@ -39,9 +31,8 @@ def recall_hit():
         workflow=WorkflowInfo(
             id="wf_1",
             description="test",
-            total_steps=2,
             overview="overview",
-            skeleton="skeleton",
+            content="## Step 1\nFirst\n\n## Step 2\nSecond",
         ),
     )
 
@@ -112,21 +103,6 @@ class TestFinish:
         await session.finish()
         with pytest.raises(RuntimeError, match="already finished"):
             await session.finish()
-
-
-class TestHint:
-    async def test_hint_delegates(self, mock_client, recall_hit):
-        session = MyelinSession(mock_client, recall_hit)
-        resp = await session.hint(1)
-        assert resp.detail == "Do the thing"
-        mock_client.hint.assert_awaited_once_with("ses_1", 1)
-
-    async def test_hint_works_after_finish(self, mock_client, recall_hit):
-        """Hint should still work even after finish (read-only)."""
-        session = MyelinSession(mock_client, recall_hit)
-        await session.finish()
-        resp = await session.hint(1)
-        assert resp.step_number == 1
 
 
 class TestStart:
@@ -225,37 +201,23 @@ class TestLangchainHandler:
         assert handler._hide_outputs is hide_out
 
 
-class TestSteps:
-    async def test_yields_tuples_on_hit(self, mock_client, recall_hit):
-        session = MyelinSession(mock_client, recall_hit)
-        result = [(n, d) async for n, d in session.steps()]
-        assert result == [(1, "First"), (2, "Second")]
-        mock_client.hints.assert_awaited_once_with("ses_1")
-
-    async def test_empty_on_miss(self, mock_client, recall_miss):
-        session = MyelinSession(mock_client, recall_miss)
-        result = [(n, d) async for n, d in session.steps()]
-        assert result == []
-        mock_client.hints.assert_not_awaited()
-
-
 class TestBuildSystemPrompt:
-    async def test_returns_prompt_on_hit(self, mock_client, recall_hit):
+    def test_returns_prompt_on_hit(self, mock_client, recall_hit):
         session = MyelinSession(mock_client, recall_hit)
-        prompt = await session.build_system_prompt()
+        prompt = session.build_system_prompt()
         assert prompt is not None
         assert "proven procedure" in prompt
-        assert "Step 1: First" in prompt
-        assert "Step 2: Second" in prompt
+        assert "Step 1" in prompt
+        assert "Step 2" in prompt
         assert "overview" in prompt
 
-    async def test_returns_none_on_miss(self, mock_client, recall_miss):
+    def test_returns_none_on_miss(self, mock_client, recall_miss):
         session = MyelinSession(mock_client, recall_miss)
-        prompt = await session.build_system_prompt()
+        prompt = session.build_system_prompt()
         assert prompt is None
 
-    async def test_prepends_preamble(self, mock_client, recall_hit):
+    def test_prepends_preamble(self, mock_client, recall_hit):
         session = MyelinSession(mock_client, recall_hit)
-        prompt = await session.build_system_prompt(preamble="You are a helper.")
+        prompt = session.build_system_prompt(preamble="You are a helper.")
         assert prompt.startswith("You are a helper.")
         assert "proven procedure" in prompt

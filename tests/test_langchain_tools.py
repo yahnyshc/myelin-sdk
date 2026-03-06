@@ -27,16 +27,6 @@ def _make_recall_tool(client=None, state=None, agent_id="default"):
     return MemoryRecallTool(client=client, state=state, agent_id=agent_id), client, state
 
 
-def _make_hint_tool(client=None, state=None):
-    from myelin_sdk.integrations.langchain.tools import MemoryHintTool
-
-    if client is None:
-        client = AsyncMock()
-    if state is None:
-        state = _make_state()
-    return MemoryHintTool(client=client, state=state), client, state
-
-
 def _make_finish_tool(client=None, state=None):
     from myelin_sdk.integrations.langchain.tools import MemoryFinishTool
 
@@ -48,7 +38,7 @@ def _make_finish_tool(client=None, state=None):
 
 
 class TestMemoryRecallTool:
-    async def test_hit_formats_steps(self):
+    async def test_hit_formats_content(self):
         from myelin_sdk.types import RecallResponse, WorkflowInfo
 
         client = AsyncMock()
@@ -59,10 +49,8 @@ class TestMemoryRecallTool:
                 workflow=WorkflowInfo(
                     id="wf_1",
                     description="Deploy app",
-                    total_steps=2,
                     overview="Deploy the application to production.",
-                    skeleton="1) Build\n2) Deploy",
-                    steps=["Build the Docker image", "Push to registry"],
+                    content="## Step 1\nBuild the Docker image\n\n## Step 2\nPush to registry",
                 ),
             )
         )
@@ -72,9 +60,8 @@ class TestMemoryRecallTool:
 
         assert "ses_123" in result
         assert "Deploy the application to production." in result
-        assert "1) Build the Docker image" in result
-        assert "2) Push to registry" in result
-        assert "memory_hint" in result
+        assert "Build the Docker image" in result
+        assert "Push to registry" in result
         assert "memory_finish" in result
 
         assert state.session_id == "ses_123"
@@ -128,51 +115,6 @@ class TestMemoryRecallTool:
         await tool._arun("task")
 
         client.recall.assert_awaited_once_with("task", "my-agent")
-
-
-class TestMemoryHintTool:
-    async def test_returns_json(self):
-        from myelin_sdk.types import HintResponse
-
-        client = AsyncMock()
-        client.hint = AsyncMock(
-            return_value=HintResponse(
-                session_id="ses_123",
-                step_number=1,
-                detail="Run `docker build -t app .`",
-            )
-        )
-
-        state = _make_state()
-        state.session_id = "ses_123"
-
-        tool, _, _ = _make_hint_tool(client=client, state=state)
-        result = await tool._arun(step_number=1)
-        parsed = json.loads(result)
-
-        assert parsed["session_id"] == "ses_123"
-        assert parsed["step_number"] == 1
-        assert "docker build" in parsed["detail"]
-
-    async def test_no_session_returns_error(self):
-        tool, _, _ = _make_hint_tool()
-        result = await tool._arun(step_number=1)
-
-        assert "Error" in result
-        assert "memory_recall" in result
-
-    async def test_api_error_returns_string(self):
-        client = AsyncMock()
-        client.hint = AsyncMock(side_effect=RuntimeError("not found"))
-
-        state = _make_state()
-        state.session_id = "ses_123"
-
-        tool, _, _ = _make_hint_tool(client=client, state=state)
-        result = await tool._arun(step_number=99)
-
-        assert "Error:" in result
-        assert "not found" in result
 
 
 class TestMemoryFinishTool:

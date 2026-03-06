@@ -43,9 +43,8 @@ class TestRecall:
                 "workflow": {
                     "id": "wf_1",
                     "description": "test workflow",
-                    "total_steps": 3,
                     "overview": "overview text",
-                    "skeleton": "1. step one\n2. step two\n3. step three",
+                    "content": "## Step 1\nDo first thing\n\n## Step 2\nDo second thing",
                 },
             },
         }])
@@ -54,7 +53,6 @@ class TestRecall:
         assert resp.matched is True
         assert resp.workflow is not None
         assert resp.workflow.id == "wf_1"
-        assert resp.workflow.total_steps == 3
         await client.close()
 
     async def test_recall_miss(self):
@@ -121,36 +119,6 @@ class TestFinish:
         assert resp.tool_calls_recorded == 5
         assert resp.status == "evaluated"
         assert resp.workflow_id == "wf_new"
-        await client.close()
-
-
-class TestHint:
-    async def test_hint(self):
-        client = _client_with([{
-            "json": {
-                "session_id": "ses_1",
-                "step_number": 2,
-                "detail": "Run the migration script",
-            },
-        }])
-        resp = await client.hint("ses_1", 2)
-        assert resp.session_id == "ses_1"
-        assert resp.step_number == 2
-        assert resp.detail == "Run the migration script"
-        await client.close()
-
-
-class TestHints:
-    async def test_hints(self):
-        client = _client_with([{
-            "json": {
-                "session_id": "ses_1",
-                "hints": {"1": "Do first thing", "2": "Do second thing"},
-            },
-        }])
-        resp = await client.hints("ses_1")
-        assert resp.session_id == "ses_1"
-        assert resp.hints == {1: "Do first thing", 2: "Do second thing"}
         await client.close()
 
 

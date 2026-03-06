@@ -8,7 +8,7 @@ from importlib.metadata import version as _pkg_version
 
 from .errors import raise_for_status
 from .redact import RedactionConfig, get_default_config, redact_dict, redact_string
-from .types import CaptureResponse, FeedbackResponse, FinishResponse, HintResponse, HintsResponse, RecallResponse
+from .types import CaptureResponse, FeedbackResponse, FinishResponse, RecallResponse
 
 _VERSION = _pkg_version("myelin-sdk")
 
@@ -90,18 +90,6 @@ class MyelinClient:
         resp = await self._http.post(f"/v1/sessions/{session_id}/finish")
         raise_for_status(resp)
         return FinishResponse(**resp.json())
-
-    async def hint(self, session_id: str, step_number: int) -> HintResponse:
-        resp = await self._http.get(
-            f"/v1/sessions/{session_id}/hint/{step_number}"
-        )
-        raise_for_status(resp)
-        return HintResponse(**resp.json())
-
-    async def hints(self, session_id: str) -> HintsResponse:
-        resp = await self._http.get(f"/v1/sessions/{session_id}/hints")
-        raise_for_status(resp)
-        return HintsResponse(**resp.json())
 
     async def close(self):
         await self._http.aclose()

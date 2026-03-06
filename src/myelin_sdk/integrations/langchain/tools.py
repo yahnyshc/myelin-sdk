@@ -1,4 +1,4 @@
-"""LangChain tools for autonomous Myelin recall/hint/finish."""
+"""LangChain tools for autonomous Myelin recall/finish."""
 
 from __future__ import annotations
 
@@ -47,14 +47,6 @@ class FeedbackInput(BaseModel):
     )
 
 
-class HintInput(BaseModel):
-    """Input for memory_hint."""
-
-    step_number: int = Field(
-        description="The step number to get detail for."
-    )
-
-
 # -- Tools -------------------------------------------------------------------
 
 
@@ -64,7 +56,7 @@ class MemoryRecallTool(BaseTool):
     name: str = "memory_recall"
     description: str = (
         "Search for a matching workflow and start a recording session. "
-        "On HIT: returns workflow steps + session_id. Follow the workflow, "
+        "On HIT: returns workflow content + session_id. Follow the workflow, "
         "then call memory_finish. "
         "On MISS: returns session_id. Work freestyle, then call memory_finish when done."
     )
@@ -103,18 +95,13 @@ class MemoryRecallTool(BaseTool):
 
         if r.matched and r.workflow:
             wf = r.workflow
-            steps_block = "\n".join(
-                f"{i + 1}) {step}" for i, step in enumerate(wf.steps)
-            )
             return (
                 f"session_id: {r.session_id}\n"
                 f"\n"
                 f"{wf.overview}\n"
                 f"\n"
-                f"Steps:\n"
-                f"{steps_block}\n"
+                f"{wf.content}\n"
                 f"\n"
-                f"Call memory_hint(step_number) for detail on any step.\n"
                 f"Use memory_feedback(notes) to record observations during execution.\n"
                 f"When done, call memory_finish."
             )
@@ -126,51 +113,6 @@ class MemoryRecallTool(BaseTool):
                 f"Use memory_feedback(notes) to record observations during execution.\n"
                 f"When done, call memory_finish."
             )
-
-
-class MemoryHintTool(BaseTool):
-    """Get detailed instructions for a single workflow step."""
-
-    name: str = "memory_hint"
-    description: str = (
-        "Get detailed instructions for a single workflow step. "
-        "Call this during a HIT workflow when you need more detail on a specific step."
-    )
-    args_schema: Type[BaseModel] = HintInput
-
-    _client: MyelinClient = PrivateAttr()
-    _state: _MyelinToolState = PrivateAttr()
-
-    def __init__(
-        self,
-        client: MyelinClient,
-        state: _MyelinToolState,
-        **kwargs: Any,
-    ):
-        super().__init__(**kwargs)
-        self._client = client
-        self._state = state
-
-    def _run(self, step_number: int) -> str:
-        raise NotImplementedError("Use async: await memory_hint.ainvoke(...)")
-
-    async def _arun(self, step_number: int) -> str:
-        if not self._state.session_id:
-            return "Error: no active session. Call memory_recall first."
-
-        try:
-            r = await self._client.hint(self._state.session_id, step_number)
-        except Exception as exc:
-            logger.warning("memory_hint failed: %s", exc, exc_info=True)
-            return f"Error: {exc}"
-
-        return json.dumps(
-            {
-                "session_id": r.session_id,
-                "step_number": r.step_number,
-                "detail": r.detail,
-            }
-        )
 
 
 class MemoryFeedbackTool(BaseTool):
