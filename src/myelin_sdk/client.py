@@ -6,6 +6,7 @@ import httpx
 
 from importlib.metadata import version as _pkg_version
 
+from ._utils import validate_base_url
 from .errors import raise_for_status
 from .redact import RedactionConfig, get_default_config, redact_dict, redact_string
 from .types import CaptureResponse, FeedbackResponse, FinishResponse, ListWorkflowsResponse, RecallResponse
@@ -22,6 +23,7 @@ class MyelinClient:
         redaction: RedactionConfig | None = None,
     ):
 
+        validate_base_url(base_url)
         self._http = httpx.AsyncClient(
             base_url=base_url,
             headers={

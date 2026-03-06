@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.request
 
-from myelin_sdk._utils import truncate
+from myelin_sdk._utils import truncate, validate_base_url
 from myelin_sdk.redact import RedactionConfig, redact_dict, redact_string
 
 # -- Hook constants -----------------------------------------------------------
@@ -266,6 +266,11 @@ def _load_env() -> None:
     url = server.get("url", "")
     if url and not os.environ.get("MYELIN_URL"):
         base_url = url.removesuffix("/mcp")
+        try:
+            validate_base_url(base_url)
+        except ValueError as exc:
+            log(f"ignoring URL from .mcp.json: {exc}")
+            return
         os.environ["MYELIN_URL"] = base_url
 
     # Extract API key from Authorization header
@@ -307,6 +312,14 @@ def main() -> int:
 
     myelin_url = os.environ.get("MYELIN_URL", "")
     myelin_key = os.environ.get("MYELIN_API_KEY", "")
+
+    # Validate URL scheme to prevent sending API keys to unintended servers
+    if myelin_url:
+        try:
+            validate_base_url(myelin_url)
+        except ValueError as exc:
+            log(str(exc))
+            return 0
 
     # 1. recall — persist Myelin session_id
     if tool_name == RECALL:

@@ -25,7 +25,6 @@ HOOK_PATH = (
 
 _COMMON_ENV = {
     "PATH": os.environ.get("PATH", ""),
-    "MYELIN_URL": "http://localhost:19876",
     "MYELIN_API_KEY": "test-key",
 }
 
@@ -37,8 +36,11 @@ def project_dir():
         yield d
 
 
+_DEFAULT_MYELIN_URL = "http://127.0.0.1:19876"
+
+
 def _base_env(project_dir: str) -> dict:
-    return {**_COMMON_ENV, "CLAUDE_PROJECT_DIR": project_dir}
+    return {**_COMMON_ENV, "MYELIN_URL": _DEFAULT_MYELIN_URL, "CLAUDE_PROJECT_DIR": project_dir}
 
 
 def run_hook(
@@ -169,7 +171,7 @@ class TestRecall:
 
     def test_no_project_dir_skips_session_file(self, cc_session_id):
         """Without CLAUDE_PROJECT_DIR, recall succeeds but no file is written."""
-        env = {**_COMMON_ENV, "CLAUDE_PROJECT_DIR": ""}
+        env = {**_COMMON_ENV, "MYELIN_URL": _DEFAULT_MYELIN_URL, "CLAUDE_PROJECT_DIR": ""}
         result = subprocess.run(
             [sys.executable, str(HOOK_PATH)],
             input=json.dumps({
@@ -246,13 +248,19 @@ class CaptureHandler(BaseHTTPRequestHandler):
 
 @pytest.fixture
 def capture_server():
-    """Start a local HTTP server to receive capture requests."""
+    """Start a local HTTP server on a random free port to receive capture requests."""
     CaptureHandler.captured = []
-    server = HTTPServer(("127.0.0.1", 19876), CaptureHandler)
+    server = HTTPServer(("127.0.0.1", 0), CaptureHandler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield server
     server.shutdown()
+
+
+def _capture_env(capture_server) -> dict:
+    """Return env override pointing MYELIN_URL at the capture server."""
+    port = capture_server.server_address[1]
+    return {"MYELIN_URL": f"http://127.0.0.1:{port}"}
 
 
 class TestCapture:
@@ -266,7 +274,7 @@ class TestCapture:
             "session_id": cc_session_id,
             "tool_input": {"command": "echo hello"},
             "tool_response": "hello",
-        }, project_dir)
+        }, project_dir, env=_capture_env(capture_server))
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
         body = CaptureHandler.captured[0]
@@ -284,11 +292,11 @@ class TestCapture:
 
         long_response = "x" * 20000
         result = run_hook({
-            "tool_name": "Read",
+            "tool_name": "Write",
             "session_id": cc_session_id,
             "tool_input": {"path": "/file"},
             "tool_response": long_response,
-        }, project_dir)
+        }, project_dir, env=_capture_env(capture_server))
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
         resp = CaptureHandler.captured[0]["tool_response"]
@@ -320,13 +328,13 @@ class TestCapture:
 
         try:
             result = run_hook({
-                "tool_name": "Read",
+                "tool_name": "Write",
                 "session_id": cc_session_id,
                 "tool_use_id": "toolu_reasoning1",
                 "transcript_path": transcript.name,
                 "tool_input": {"path": "/etc/config"},
                 "tool_response": "key=value",
-            }, project_dir)
+            }, project_dir, env=_capture_env(capture_server))
             assert result.returncode == 0
             assert len(CaptureHandler.captured) == 1
             body = CaptureHandler.captured[0]
@@ -348,7 +356,7 @@ class TestCapture:
             "tool_use_id": "toolu_noreason",
             "tool_input": {"command": "ls"},
             "tool_response": "file1",
-        }, project_dir)
+        }, project_dir, env=_capture_env(capture_server))
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
         assert "reasoning" not in CaptureHandler.captured[0]
@@ -405,7 +413,7 @@ class TestRedaction:
                 "tool_response": "ok",
             },
             project_dir,
-            env={"MYELIN_REDACTION_CONFIG": redaction_config},
+            env={**_capture_env(capture_server), "MYELIN_REDACTION_CONFIG": redaction_config},
         )
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
@@ -426,7 +434,7 @@ class TestRedaction:
                 "tool_response": "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.test",
             },
             project_dir,
-            env={"MYELIN_REDACTION_CONFIG": redaction_config},
+            env={**_capture_env(capture_server), "MYELIN_REDACTION_CONFIG": redaction_config},
         )
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
@@ -448,7 +456,7 @@ class TestRedaction:
                 "tool_response": "ok",
             },
             project_dir,
-            env={"MYELIN_REDACT": "0"},
+            env={**_capture_env(capture_server), "MYELIN_REDACT": "0"},
         )
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
@@ -468,7 +476,7 @@ class TestRedaction:
             "session_id": cc_session_id,
             "tool_input": {"key": secret},
             "tool_response": "ok",
-        }, project_dir)
+        }, project_dir, env=_capture_env(capture_server))
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
         body = CaptureHandler.captured[0]
@@ -606,6 +614,79 @@ class TestMcpJsonLoading:
                     "MYELIN_API_KEY": "",
                 },
             )
+            assert result.returncode == 2
+            assert "MYELIN_URL" in result.stderr
+
+
+class TestUrlValidation:
+    """Verify SSRF protection: reject non-HTTPS URLs for non-localhost."""
+
+    def test_http_remote_url_rejected(self, cc_session_id, project_dir):
+        """HTTP URL to a remote host should be rejected (SSRF protection)."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_ssrf")
+
+        result = run_hook(
+            {
+                "tool_name": "Bash",
+                "session_id": cc_session_id,
+                "tool_input": {"command": "ls"},
+                "tool_response": "file1",
+            },
+            project_dir,
+            env={"MYELIN_URL": "http://evil.com"},
+        )
+        assert result.returncode == 0
+        assert "HTTPS is required" in result.stderr
+
+    def test_http_localhost_url_allowed(self, cc_session_id, project_dir, capture_server):
+        """HTTP URL to localhost should still work (dev use)."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_local")
+
+        result = run_hook(
+            {
+                "tool_name": "Bash",
+                "session_id": cc_session_id,
+                "tool_input": {"command": "ls"},
+                "tool_response": "file1",
+            },
+            project_dir,
+            env=_capture_env(capture_server),
+        )
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+
+    def test_mcp_json_http_remote_rejected(self):
+        """HTTP remote URL in .mcp.json should be rejected."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mcp_config = {
+                "mcpServers": {
+                    "myelin": {
+                        "type": "http",
+                        "url": "http://evil.com/mcp",
+                        "headers": {
+                            "Authorization": "Bearer stolen-key",
+                        },
+                    }
+                }
+            }
+            mcp_path = os.path.join(tmpdir, ".mcp.json")
+            with open(mcp_path, "w") as f:
+                json.dump(mcp_config, f)
+
+            result = run_hook(
+                {
+                    "tool_name": "mcp__myelin__memory_recall",
+                    "session_id": "test_mcp_ssrf",
+                    "tool_response": {"session_id": "ses_ssrf"},
+                },
+                tmpdir,
+                env={"MYELIN_URL": "", "MYELIN_API_KEY": ""},
+            )
+            # Should fail because URL was rejected, so env vars remain unset
             assert result.returncode == 2
             assert "MYELIN_URL" in result.stderr
 

@@ -3,6 +3,7 @@
 import httpx
 import pytest
 
+from myelin_sdk._utils import validate_base_url
 from myelin_sdk.client import MyelinClient
 from myelin_sdk.errors import MyelinAPIError
 
@@ -208,6 +209,51 @@ class TestRedaction:
         assert "ghp_" not in body["reasoning"]
         assert "[REDACTED]" in body["reasoning"]
         await client.close()
+
+
+class TestBaseUrlValidation:
+    def test_https_allowed(self):
+        validate_base_url("https://myelin.fly.dev")
+
+    def test_https_custom_domain(self):
+        validate_base_url("https://myelin.internal.company.com:8443")
+
+    def test_http_localhost_allowed(self):
+        validate_base_url("http://localhost:8080")
+
+    def test_http_127_allowed(self):
+        validate_base_url("http://127.0.0.1:19876")
+
+    def test_http_ipv6_loopback_allowed(self):
+        validate_base_url("http://[::1]:8080")
+
+    def test_http_remote_rejected(self):
+        with pytest.raises(ValueError, match="HTTPS is required"):
+            validate_base_url("http://evil.com")
+
+    def test_http_remote_with_port_rejected(self):
+        with pytest.raises(ValueError, match="HTTPS is required"):
+            validate_base_url("http://attacker.com:443")
+
+    def test_ftp_rejected(self):
+        with pytest.raises(ValueError, match="Invalid base_url scheme"):
+            validate_base_url("ftp://files.example.com")
+
+    def test_no_scheme_rejected(self):
+        with pytest.raises(ValueError, match="Invalid base_url scheme"):
+            validate_base_url("myelin.fly.dev")
+
+    def test_client_rejects_http_remote(self):
+        with pytest.raises(ValueError, match="HTTPS is required"):
+            MyelinClient(api_key="test-key", base_url="http://evil.com")
+
+    def test_client_accepts_https(self):
+        client = MyelinClient(api_key="test-key", base_url="https://myelin.fly.dev")
+        assert client is not None
+
+    def test_client_accepts_http_localhost(self):
+        client = MyelinClient(api_key="test-key", base_url="http://localhost:8080")
+        assert client is not None
 
 
 class TestContextManager:
