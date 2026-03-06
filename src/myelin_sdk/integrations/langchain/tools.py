@@ -36,17 +36,6 @@ class RecallInput(BaseModel):
     )
 
 
-class FeedbackInput(BaseModel):
-    """Input for memory_feedback."""
-
-    notes: str = Field(
-        description=(
-            "Your observation or note about the session — what worked, what failed, "
-            "error messages, or any context about the task."
-        )
-    )
-
-
 # -- Tools -------------------------------------------------------------------
 
 
@@ -102,7 +91,6 @@ class MemoryRecallTool(BaseTool):
                 f"\n"
                 f"{wf.content}\n"
                 f"\n"
-                f"Use memory_feedback(notes) to record observations during execution.\n"
                 f"When done, call memory_finish."
             )
         else:
@@ -110,52 +98,8 @@ class MemoryRecallTool(BaseTool):
                 f"session_id: {r.session_id}\n"
                 f"\n"
                 f"No matching workflow found. Work freestyle.\n"
-                f"Use memory_feedback(notes) to record observations during execution.\n"
                 f"When done, call memory_finish."
             )
-
-
-class MemoryFeedbackTool(BaseTool):
-    """Write a note about the current session."""
-
-    name: str = "memory_feedback"
-    description: str = (
-        "Write a note about the current session — what worked, what failed, "
-        "error messages, or any context about the task. "
-        "Notes are stored and used for session evaluation."
-    )
-    args_schema: Type[BaseModel] = FeedbackInput
-
-    _client: MyelinClient = PrivateAttr()
-    _state: _MyelinToolState = PrivateAttr()
-
-    def __init__(
-        self,
-        client: MyelinClient,
-        state: _MyelinToolState,
-        **kwargs: Any,
-    ):
-        super().__init__(**kwargs)
-        self._client = client
-        self._state = state
-
-    def _run(self, notes: str) -> str:
-        raise NotImplementedError("Use async: await memory_feedback.ainvoke(...)")
-
-    async def _arun(self, notes: str) -> str:
-        if not self._state.session_id:
-            return "Error: no active session. Call memory_recall first."
-
-        try:
-            r = await self._client.feedback(self._state.session_id, notes)
-        except Exception as exc:
-            logger.warning("memory_feedback failed: %s", exc, exc_info=True)
-            return f"Error: {exc}"
-
-        return json.dumps({
-            "session_id": r.session_id,
-            "status": r.status,
-        })
 
 
 class MemoryFinishTool(BaseTool):
