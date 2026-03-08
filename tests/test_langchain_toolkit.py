@@ -1,6 +1,6 @@
 """Tests for MyelinToolkit — lifecycle, tool creation, handler integration."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest

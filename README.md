@@ -9,7 +9,7 @@ Zero-code integration via PostToolUse hooks.
 ### 1. Install the SDK
 
 ```bash
-pip install myelin-sdk
+uv tool install myelin-sdk
 ```
 
 ### 2. Add the MCP server
@@ -32,7 +32,7 @@ Add this to `.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -m myelin_sdk.claude_code"
+            "command": "myelin-capture"
           }
         ]
       }

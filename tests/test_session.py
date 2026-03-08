@@ -126,7 +126,7 @@ class TestStart:
         )
 
         with patch("myelin_sdk.session.MyelinClient", return_value=mock_client) as cls:
-            session = await MyelinSession.start("task")
+            await MyelinSession.start("task")
 
         cls.assert_called_once()
         assert cls.call_args.kwargs["api_key"] == "my_env_key"
@@ -193,8 +193,8 @@ class TestLangchainHandler:
         assert handler._client is mock_client
 
     def test_forwards_kwargs(self, mock_client, recall_hit, patch_langchain):
-        hide_in = lambda d: d
-        hide_out = lambda s: s
+        def hide_in(d): return d
+        def hide_out(s): return s
         session = MyelinSession(mock_client, recall_hit)
         handler = session.langchain_handler(hide_inputs=hide_in, hide_outputs=hide_out)
         assert handler._hide_inputs is hide_in
