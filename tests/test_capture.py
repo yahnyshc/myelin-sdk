@@ -381,6 +381,126 @@ class TestCapture:
         assert "capture failed" in result.stderr
 
 
+class TestInvestigationTools:
+    """Investigation tools (Read, Glob, Grep) are captured input-only."""
+
+    def test_read_captured_with_empty_response(self, cc_session_id, project_dir, capture_server):
+        """Read tool is captured but tool_response is stripped."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_inv1")
+
+        result = run_hook({
+            "tool_name": "Read",
+            "session_id": cc_session_id,
+            "tool_input": {"file_path": "/src/main.py"},
+            "tool_response": "def main():\n    print('hello world')\n" * 100,
+        }, project_dir, env=_capture_env(capture_server))
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        body = CaptureHandler.captured[0]
+        assert body["tool_name"] == "Read"
+        assert body["tool_input"] == {"file_path": "/src/main.py"}
+        assert body["tool_response"] == ""
+        assert body["session_id"] == "ses_inv1"
+
+    def test_glob_captured_with_empty_response(self, cc_session_id, project_dir, capture_server):
+        """Glob tool is captured but tool_response is stripped."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_inv2")
+
+        result = run_hook({
+            "tool_name": "Glob",
+            "session_id": cc_session_id,
+            "tool_input": {"pattern": "**/*.py"},
+            "tool_response": "src/a.py\nsrc/b.py\nsrc/c.py",
+        }, project_dir, env=_capture_env(capture_server))
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        body = CaptureHandler.captured[0]
+        assert body["tool_name"] == "Glob"
+        assert body["tool_input"] == {"pattern": "**/*.py"}
+        assert body["tool_response"] == ""
+
+    def test_grep_captured_with_empty_response(self, cc_session_id, project_dir, capture_server):
+        """Grep tool is captured but tool_response is stripped."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_inv3")
+
+        result = run_hook({
+            "tool_name": "Grep",
+            "session_id": cc_session_id,
+            "tool_input": {"pattern": "def main", "path": "/src"},
+            "tool_response": "src/main.py:1:def main():",
+        }, project_dir, env=_capture_env(capture_server))
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        body = CaptureHandler.captured[0]
+        assert body["tool_name"] == "Grep"
+        assert body["tool_input"] == {"pattern": "def main", "path": "/src"}
+        assert body["tool_response"] == ""
+
+    def test_action_tool_still_has_response(self, cc_session_id, project_dir, capture_server):
+        """Non-investigation tools (Bash) still capture full response."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_inv4")
+
+        result = run_hook({
+            "tool_name": "Bash",
+            "session_id": cc_session_id,
+            "tool_input": {"command": "echo hello"},
+            "tool_response": "hello",
+        }, project_dir, env=_capture_env(capture_server))
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        body = CaptureHandler.captured[0]
+        assert body["tool_response"] == "hello"
+
+    def test_investigation_tool_reasoning_still_captured(
+        self, cc_session_id, project_dir, capture_server
+    ):
+        """Reasoning is still captured for investigation tools."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_inv5")
+
+        transcript = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False
+        )
+        transcript.write(json.dumps({
+            "message": {
+                "id": "msg_inv",
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "I need to check the config."},
+                    {"type": "tool_use", "id": "toolu_inv1", "name": "Read"},
+                ],
+            }
+        }) + "\n")
+        transcript.flush()
+
+        try:
+            result = run_hook({
+                "tool_name": "Read",
+                "session_id": cc_session_id,
+                "tool_use_id": "toolu_inv1",
+                "transcript_path": transcript.name,
+                "tool_input": {"file_path": "/etc/config"},
+                "tool_response": "key=value\nsecret=hidden",
+            }, project_dir, env=_capture_env(capture_server))
+            assert result.returncode == 0
+            assert len(CaptureHandler.captured) == 1
+            body = CaptureHandler.captured[0]
+            assert body["tool_response"] == ""
+            assert "reasoning" in body
+            assert "I need to check the config" in body["reasoning"]
+        finally:
+            os.unlink(transcript.name)
+
+
 class TestRedaction:
     """Test redaction in the subprocess capture hook."""
 

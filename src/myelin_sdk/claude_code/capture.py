@@ -26,6 +26,10 @@ CAPTURE_TIMEOUT = 5  # seconds
 CAPTURE_RETRIES = 2
 RETRY_DELAY = 1.0  # seconds
 
+# Investigation tools: capture tool name + input (file paths, patterns) but
+# strip the response (large, context-dependent, not useful for workflows).
+INVESTIGATION_TOOLS = {"Read", "Glob", "Grep"}
+
 
 def log(msg: str) -> None:
     print(f"[myelin] {msg}", file=sys.stderr)
@@ -354,17 +358,18 @@ def main() -> int:
     if tool_name.startswith(MYELIN_TOOL_PREFIX):
         return 0
 
-    # 4. Skip Claude Code internal / read-only tools
-    #    Only action tools (Edit, Write, Bash, NotebookEdit, WebFetch,
-    #    WebSearch, Computer) are captured. Everything else is navigation,
-    #    planning, or coordination noise.
+    # 4. Skip Claude Code internal tools
+    #    Action tools (Edit, Write, Bash, etc.) are fully captured.
+    #    Investigation tools (Read, Glob, Grep) are captured input-only.
+    #    Everything else is planning, coordination, or navigation noise.
     if tool_name in (
         # Task management & planning
         "TaskCreate", "TaskUpdate", "TaskList", "TaskGet",
         "TodoWrite", "TodoRead", "ToolSearch",
         "EnterPlanMode", "ExitPlanMode", "AskUserQuestion",
-        # Read-only / navigation
-        "Glob", "Grep", "Read", "LS", "NotebookRead", "LSP",
+        # Read-only / navigation (NOT Read, Glob, Grep — those are
+        # captured input-only via INVESTIGATION_TOOLS)
+        "LS", "NotebookRead", "LSP",
         # Agent coordination
         "Agent", "TeamCreate", "TeamDelete", "SendMessage",
         "EnterWorktree", "Skill",
@@ -388,7 +393,12 @@ def main() -> int:
         return 0
 
     tool_input = data.get("tool_input", {})
-    tool_response = str(data.get("tool_response", ""))
+
+    # Investigation tools: keep input (file paths, patterns) but strip output
+    if tool_name in INVESTIGATION_TOOLS:
+        tool_response = ""
+    else:
+        tool_response = str(data.get("tool_response", ""))
 
     # Redact before truncate
     if redaction_cfg and redaction_cfg.enabled:
