@@ -3,30 +3,22 @@
 from pydantic import BaseModel
 
 
-class WorkflowInfo(BaseModel):
-    id: str
-    description: str
-    overview: str
-    content: str
-
-
-class RecallResponse(BaseModel):
-    session_id: str
-    matched: bool
-    workflow: WorkflowInfo | None = None
-
-
-class ListWorkflowItem(BaseModel):
+class SearchMatch(BaseModel):
     workflow_id: str
+    title: str
     description: str
-    sessions_passed: int = 0
-    sessions_total: int = 0
-    avg_reward: float | None = None
+    content: str | None = None
+    score: float | None = None
 
 
-class ListWorkflowsResponse(BaseModel):
-    workflows: list[ListWorkflowItem] = []
-    count: int = 0
+class SearchResult(BaseModel):
+    top_match: SearchMatch | None = None
+    other_matches: list[SearchMatch] = []
+
+
+class StartResult(BaseModel):
+    session_id: str
+    matched_workflow_id: str | None = None
 
 
 class CaptureResponse(BaseModel):
@@ -58,5 +50,3 @@ class SyncResult(BaseModel):
     created: int = 0
     updated: int = 0
     unchanged: int = 0
-
-

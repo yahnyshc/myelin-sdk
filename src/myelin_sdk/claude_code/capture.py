@@ -22,7 +22,7 @@ from myelin_sdk.redact import RedactionConfig, redact_dict, redact_string
 
 MYELIN_TOOL_PREFIX = "mcp__myelin__"
 _ENV_LOADED = False
-RECALL = f"{MYELIN_TOOL_PREFIX}memory_recall"
+START = f"{MYELIN_TOOL_PREFIX}memory_start"
 FINISH = f"{MYELIN_TOOL_PREFIX}memory_finish"
 CAPTURE_TIMEOUT = 5  # seconds
 CAPTURE_RETRIES = 2
@@ -57,15 +57,13 @@ def session_file_path(cc_session_id: str) -> str | None:
     return os.path.join(project_dir, ".claude", _SESSIONS_DIR_NAME, safe_id)
 
 
-def _cleanup_stale_session_files(sessions_dir: str, max_age_hours: int = 25) -> None:
-    """Remove session files older than max_age_hours. Best-effort."""
-    cutoff = time.time() - max_age_hours * 3600
+def _clear_all_session_files(sessions_dir: str) -> None:
+    """Delete all existing session files. Called on start to ensure only one active session."""
     try:
         for name in os.listdir(sessions_dir):
             path = os.path.join(sessions_dir, name)
             try:
-                if os.stat(path).st_mtime < cutoff:
-                    os.remove(path)
+                os.remove(path)
             except OSError:
                 pass
     except OSError:
@@ -191,7 +189,7 @@ def _extract_text_from_content_blocks(data):
 
 
 def extract_session_id(tool_response):
-    """Extract myelin session_id from a recall tool response.
+    """Extract myelin session_id from a start tool response.
 
     The response can arrive in several shapes:
       - Plain text starting with "session_id: <id>"
@@ -327,8 +325,8 @@ def main() -> int:
             log(str(exc))
             return 0
 
-    # 1. recall — persist Myelin session_id
-    if tool_name == RECALL:
+    # 1. start — persist Myelin session_id
+    if tool_name == START:
         if not myelin_url or not myelin_key:
             log(
                 "MYELIN_URL and MYELIN_API_KEY must be set. "
@@ -340,7 +338,8 @@ def main() -> int:
         if sid and session_file:
             sessions_dir = os.path.dirname(session_file)
             os.makedirs(sessions_dir, exist_ok=True)
-            _cleanup_stale_session_files(sessions_dir)
+            # Clear all existing session files — only one active session at a time
+            _clear_all_session_files(sessions_dir)
             with open(session_file, "w") as f:
                 f.write(sid)
             debug(f"session started: {sid}")

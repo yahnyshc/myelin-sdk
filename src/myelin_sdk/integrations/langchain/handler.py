@@ -26,7 +26,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SKIP_TOOLS: frozenset[str] = frozenset({
-    "memory_recall",
+    "memory_search",
+    "memory_start",
     "memory_hint",
     "memory_finish",
 })

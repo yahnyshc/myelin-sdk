@@ -1,7 +1,7 @@
-"""Autonomous agent: Myelin recall/hint/finish as LangChain tools.
+"""Autonomous agent: Myelin search/start/finish as LangChain tools.
 
-The agent decides when to search for workflows, request step details,
-and finalize the session — no developer orchestration needed.
+The agent decides when to search for workflows, start a recording session,
+and finalize it — no developer orchestration needed.
 
 Usage:
     export MYELIN_API_KEY=my_...
@@ -44,9 +44,9 @@ def send_reply(ticket_id: str, message: str) -> str:
 
 
 SYSTEM_PROMPT = """\
-You are a support agent. Before starting any task, call memory_recall with a \
-description of what you're about to do. If a workflow is found, follow it and \
-use memory_hint for step details. When done, call memory_finish.
+You are a support agent. Before starting any task, call memory_search with a \
+description of what you're about to do. If a workflow is found, call \
+memory_start with its workflow_id. When done, call memory_finish.
 """
 
 

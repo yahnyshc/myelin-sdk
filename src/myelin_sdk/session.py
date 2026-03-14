@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from .client import MyelinClient
 from .redact import RedactionConfig
-from .types import CaptureResponse, FeedbackResponse, FinishResponse, RecallResponse, WorkflowInfo
+from .types import CaptureResponse, FeedbackResponse, FinishResponse, StartResult
 
 if TYPE_CHECKING:
     from typing import Callable
@@ -17,24 +17,25 @@ class MyelinSession:
     def __init__(
         self,
         client: MyelinClient,
-        recall_response: RecallResponse,
+        start_result: StartResult,
         *,
         _owns_client: bool = False,
     ):
         self._client = client
-        self._recall = recall_response
+        self._start_result = start_result
         self._active = True
         self._owns_client = _owns_client
         self._init_coro = None
 
     @classmethod
-    def start(
+    def create(
         cls,
         task: str,
         *,
         api_key: str | None = None,
         base_url: str = "https://myelin.fly.dev",
-        agent_id: str = "default",
+        workflow_id: str | None = None,
+        project_id: str | None = None,
         redaction: RedactionConfig | None = None,
     ) -> MyelinSession:
         key = api_key or os.environ.get("MYELIN_API_KEY")
@@ -42,12 +43,16 @@ class MyelinSession:
             raise ValueError("api_key required (pass it or set MYELIN_API_KEY)")
 
         client = MyelinClient(api_key=key, base_url=base_url, redaction=redaction)
-        # Create a placeholder with a sentinel recall response; __await__ fills it in.
-        placeholder = RecallResponse(session_id="", matched=False)
+        # Create a placeholder; __await__ / __aenter__ fills it in.
+        placeholder = StartResult(session_id="")
         session = cls(client, placeholder, _owns_client=True)
 
         async def _init() -> MyelinSession:
-            session._recall = await client.recall(task, agent_id=agent_id)
+            session._start_result = await client.start(
+                workflow_id=workflow_id,
+                task_description=task,
+                project_id=project_id,
+            )
             return session
 
         session._init_coro = _init()
@@ -58,15 +63,11 @@ class MyelinSession:
 
     @property
     def session_id(self) -> str:
-        return self._recall.session_id
+        return self._start_result.session_id
 
     @property
-    def matched(self) -> bool:
-        return self._recall.matched
-
-    @property
-    def workflow(self) -> WorkflowInfo | None:
-        return self._recall.workflow
+    def matched_workflow_id(self) -> str | None:
+        return self._start_result.matched_workflow_id
 
     async def capture(
         self,
@@ -116,19 +117,6 @@ class MyelinSession:
             hide_outputs=hide_outputs,
             redaction=redaction,
         )
-
-    def build_system_prompt(self, *, preamble: str = "") -> str | None:
-        if not self.matched or not self.workflow:
-            return None
-        wf = self.workflow
-        prompt = (
-            f"You are following a proven procedure for: {wf.description}\n\n"
-            f"Overview: {wf.overview}\n\n"
-            f"{wf.content}\n\n"
-            "Adapt these instructions to the specific request. "
-            "Use the available tools to execute each step."
-        )
-        return preamble.rstrip() + "\n\n" + prompt if preamble else prompt
 
     async def __aenter__(self):
         if self._init_coro is not None:

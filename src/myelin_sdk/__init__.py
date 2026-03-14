@@ -7,12 +7,11 @@ from .types import (
     CaptureResponse,
     FeedbackResponse,
     FinishResponse,
-    ListWorkflowItem,
-    ListWorkflowsResponse,
-    RecallResponse,
+    SearchMatch,
+    SearchResult,
+    StartResult,
     SyncFileResult,
     SyncResult,
-    WorkflowInfo,
 )
 
 __version__ = _pkg_version("myelin-sdk")
@@ -24,11 +23,10 @@ __all__ = [
     "CaptureResponse",
     "FeedbackResponse",
     "FinishResponse",
-    "ListWorkflowItem",
-    "ListWorkflowsResponse",
-    "RecallResponse",
+    "SearchMatch",
+    "SearchResult",
+    "StartResult",
     "SyncFileResult",
     "SyncResult",
-    "WorkflowInfo",
     "__version__",
 ]

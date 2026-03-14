@@ -104,10 +104,10 @@ class TestMissingFields:
         assert result.returncode == 0
 
 
-class TestRecall:
+class TestStart:
     def test_creates_session_file(self, cc_session_id, project_dir):
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_recall",
+            "tool_name": "mcp__myelin__memory_start",
             "session_id": cc_session_id,
             "tool_response": {"session_id": "ses_abc123"},
         }, project_dir)
@@ -119,7 +119,7 @@ class TestRecall:
     def test_nested_result_string(self, cc_session_id, project_dir):
         """Handle {result: '{"session_id": "..."}'}."""
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_recall",
+            "tool_name": "mcp__myelin__memory_start",
             "session_id": cc_session_id,
             "tool_response": {"result": json.dumps({"session_id": "ses_nested"})},
         }, project_dir)
@@ -129,7 +129,7 @@ class TestRecall:
     def test_nested_result_object(self, cc_session_id, project_dir):
         """Handle {result: {session_id: "..."}}."""
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_recall",
+            "tool_name": "mcp__myelin__memory_start",
             "session_id": cc_session_id,
             "tool_response": {"result": {"session_id": "ses_obj"}},
         }, project_dir)
@@ -139,7 +139,7 @@ class TestRecall:
     def test_string_response(self, cc_session_id, project_dir):
         """Handle tool_response as a raw JSON string."""
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_recall",
+            "tool_name": "mcp__myelin__memory_start",
             "session_id": cc_session_id,
             "tool_response": json.dumps({"session_id": "ses_str"}),
         }, project_dir)
@@ -149,7 +149,7 @@ class TestRecall:
     def test_missing_env_vars(self, cc_session_id, project_dir):
         result = run_hook(
             {
-                "tool_name": "mcp__myelin__memory_recall",
+                "tool_name": "mcp__myelin__memory_start",
                 "session_id": cc_session_id,
                 "tool_response": {"session_id": "ses_x"},
             },
@@ -162,7 +162,7 @@ class TestRecall:
     def test_no_session_id_in_response(self, cc_session_id, project_dir):
         """If tool_response has no session_id, don't create file."""
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_recall",
+            "tool_name": "mcp__myelin__memory_start",
             "session_id": cc_session_id,
             "tool_response": {"matches": []},
         }, project_dir)
@@ -170,12 +170,12 @@ class TestRecall:
         assert not session_file(project_dir, cc_session_id).exists()
 
     def test_no_project_dir_skips_session_file(self, cc_session_id):
-        """Without CLAUDE_PROJECT_DIR, recall succeeds but no file is written."""
+        """Without CLAUDE_PROJECT_DIR, start succeeds but no file is written."""
         env = {**_COMMON_ENV, "MYELIN_URL": _DEFAULT_MYELIN_URL, "CLAUDE_PROJECT_DIR": ""}
         result = subprocess.run(
             [sys.executable, str(HOOK_PATH)],
             input=json.dumps({
-                "tool_name": "mcp__myelin__memory_recall",
+                "tool_name": "mcp__myelin__memory_start",
                 "session_id": cc_session_id,
                 "tool_response": {"session_id": "ses_noproj"},
             }),
@@ -185,6 +185,29 @@ class TestRecall:
             timeout=10,
         )
         assert result.returncode == 0
+
+    def test_clears_existing_session_files(self, cc_session_id, project_dir):
+        """Starting a new session clears any existing session files."""
+        sessions_dir = Path(project_dir) / ".claude" / ".myelin-sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create an existing session file
+        old_file = sessions_dir / "old_session"
+        old_file.write_text("ses_old")
+
+        result = run_hook({
+            "tool_name": "mcp__myelin__memory_start",
+            "session_id": cc_session_id,
+            "tool_response": {"session_id": "ses_new"},
+        }, project_dir)
+        assert result.returncode == 0
+
+        # Old session file should be gone
+        assert not old_file.exists()
+        # New session file should exist
+        sf = session_file(project_dir, cc_session_id)
+        assert sf.exists()
+        assert sf.read_text() == "ses_new"
 
 
 class TestFinish:
@@ -560,10 +583,10 @@ class TestToolFailure:
         assert len(CaptureHandler.captured) == 1
         assert "is_error" not in CaptureHandler.captured[0]
 
-    def test_recall_failure_no_session_file(self, cc_session_id, project_dir):
-        """Recall failure (error, no tool_response) should not create session file."""
+    def test_start_failure_no_session_file(self, cc_session_id, project_dir):
+        """Start failure (error, no tool_response) should not create session file."""
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_recall",
+            "tool_name": "mcp__myelin__memory_start",
             "session_id": cc_session_id,
             "error": "Connection refused",
         }, project_dir)
@@ -731,7 +754,7 @@ class TestPathTraversal:
         """A malicious session ID should still create a file in the sessions dir."""
         malicious_id = "../../evil"
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_recall",
+            "tool_name": "mcp__myelin__memory_start",
             "session_id": malicious_id,
             "tool_response": {"session_id": "ses_safe"},
         }, project_dir)
@@ -772,7 +795,7 @@ class TestMcpJsonLoading:
 
             result = run_hook(
                 {
-                    "tool_name": "mcp__myelin__memory_recall",
+                    "tool_name": "mcp__myelin__memory_start",
                     "session_id": "test_mcp_load",
                     "tool_response": {"session_id": "ses_mcp"},
                 },
@@ -808,7 +831,7 @@ class TestMcpJsonLoading:
             # Explicit env vars should win
             result = run_hook(
                 {
-                    "tool_name": "mcp__myelin__memory_recall",
+                    "tool_name": "mcp__myelin__memory_start",
                     "session_id": "test_env_precedence",
                     "tool_response": {"session_id": "ses_env"},
                 },
@@ -818,11 +841,11 @@ class TestMcpJsonLoading:
             assert result.returncode == 0
 
     def test_missing_mcp_json_graceful(self):
-        """No .mcp.json and no env vars → missing env error on recall."""
+        """No .mcp.json and no env vars -> missing env error on start."""
         with tempfile.TemporaryDirectory() as tmpdir:
             result = run_hook(
                 {
-                    "tool_name": "mcp__myelin__memory_recall",
+                    "tool_name": "mcp__myelin__memory_start",
                     "session_id": "test_no_mcp",
                     "tool_response": {"session_id": "ses_none"},
                 },
@@ -897,7 +920,7 @@ class TestUrlValidation:
 
             result = run_hook(
                 {
-                    "tool_name": "mcp__myelin__memory_recall",
+                    "tool_name": "mcp__myelin__memory_start",
                     "session_id": "test_mcp_ssrf",
                     "tool_response": {"session_id": "ses_ssrf"},
                 },
@@ -909,31 +932,32 @@ class TestUrlValidation:
             assert "MYELIN_URL" in result.stderr
 
 
-class TestStaleCleanup:
-    """Verify stale session files are cleaned up on recall."""
+class TestSessionCleanup:
+    """Verify all existing session files are cleared on start."""
 
-    def test_stale_files_removed(self, cc_session_id, project_dir):
-        """Files older than 25 hours are removed on recall."""
+    def test_old_files_removed(self, cc_session_id, project_dir):
+        """All existing session files are cleared when a new session starts."""
         sessions_dir = Path(project_dir) / ".claude" / ".myelin-sessions"
         sessions_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create a stale file (set mtime to 26 hours ago)
+        # Create a stale file (set mtime to 2 hours ago)
         stale_file = sessions_dir / "old_session"
         stale_file.write_text("ses_old")
-        old_time = time.time() - 26 * 3600
+        old_time = time.time() - 2 * 3600
         os.utime(stale_file, (old_time, old_time))
 
-        # Create a recent file (should survive)
+        # Create a recent file (should be cleared by _clear_all_session_files)
         recent_file = sessions_dir / "recent_session"
         recent_file.write_text("ses_recent")
 
-        # Trigger recall which runs cleanup
+        # Trigger start which runs cleanup
         run_hook({
-            "tool_name": "mcp__myelin__memory_recall",
+            "tool_name": "mcp__myelin__memory_start",
             "session_id": cc_session_id,
             "tool_response": {"session_id": "ses_new"},
         }, project_dir)
 
+        # Both old files should be removed (clear_all runs before cleanup)
         assert not stale_file.exists(), "stale file should be removed"
-        assert recent_file.exists(), "recent file should survive"
+        assert not recent_file.exists(), "existing session file should be cleared on start"
         assert session_file(project_dir, cc_session_id).read_text() == "ses_new"

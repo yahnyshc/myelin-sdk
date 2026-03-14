@@ -1,4 +1,4 @@
-"""LangChain tools for autonomous Myelin recall/finish."""
+"""LangChain tools for autonomous Myelin search/start/finish."""
 
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 # -- Input schemas -----------------------------------------------------------
 
 
-class RecallInput(BaseModel):
-    """Input for memory_recall."""
+class SearchInput(BaseModel):
+    """Input for memory_search."""
 
     task_description: str = Field(
         description=(
@@ -36,70 +36,159 @@ class RecallInput(BaseModel):
     )
 
 
+class StartInput(BaseModel):
+    """Input for memory_start."""
+
+    workflow_id: str | None = Field(
+        default=None,
+        description=(
+            "ID of the workflow to follow. Pass the workflow_id from "
+            "memory_search results, or omit to start without a workflow."
+        ),
+    )
+    task_description: str | None = Field(
+        default=None,
+        description="Short description of the task being started.",
+    )
+
+
 # -- Tools -------------------------------------------------------------------
 
 
-class MemoryRecallTool(BaseTool):
-    """Search for a matching workflow and start a recording session."""
+class MemorySearchTool(BaseTool):
+    """Search for matching workflows in procedural memory."""
 
-    name: str = "memory_recall"
+    name: str = "memory_search"
     description: str = (
-        "Search for a matching workflow and start a recording session. "
-        "On HIT: returns workflow content + session_id. Follow the workflow, "
-        "then call memory_finish. "
-        "On MISS: returns session_id. Work freestyle, then call memory_finish when done."
+        "Search for matching workflows. Returns top_match (with full content) "
+        "and other_matches. Review the results, then call memory_start to begin "
+        "a recording session."
     )
-    args_schema: Type[BaseModel] = RecallInput
+    args_schema: Type[BaseModel] = SearchInput
 
     _client: MyelinClient = PrivateAttr()
     _state: _MyelinToolState = PrivateAttr()
-    _agent_id: str = PrivateAttr()
 
     def __init__(
         self,
         client: MyelinClient,
         state: _MyelinToolState,
-        agent_id: str = "default",
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
         self._client = client
         self._state = state
-        self._agent_id = agent_id
 
     def _run(self, task_description: str) -> str:
-        raise NotImplementedError("Use async: await memory_recall.ainvoke(...)")
+        raise NotImplementedError("Use async: await memory_search.ainvoke(...)")
 
     async def _arun(self, task_description: str) -> str:
         try:
-            r = await self._client.recall(task_description, self._agent_id)
+            r = await self._client.search(task_description)
         except Exception as exc:
-            logger.warning("memory_recall failed: %s", exc, exc_info=True)
+            logger.warning("memory_search failed: %s", exc, exc_info=True)
+            return f"Error: {exc}"
+
+        self._state.last_search = r
+
+        if r.top_match:
+            m = r.top_match
+            parts = [
+                f"Top match (score: {m.score}):",
+                f"  workflow_id: {m.workflow_id}",
+                f"  title: {m.title}",
+                f"  description: {m.description}",
+                "",
+                m.content or "",
+                "",
+            ]
+            if r.other_matches:
+                parts.append("Other matches:")
+                for om in r.other_matches:
+                    parts.append(
+                        f"  - {om.title} (score: {om.score}, "
+                        f"workflow_id: {om.workflow_id})"
+                    )
+                parts.append("")
+            parts.append(
+                "To follow this workflow, call memory_start with the "
+                "workflow_id. To start without a workflow, call "
+                "memory_start with no workflow_id."
+            )
+            return "\n".join(parts)
+        else:
+            if r.other_matches:
+                parts = ["No strong match. Other workflows:"]
+                for om in r.other_matches:
+                    parts.append(
+                        f"  - {om.title}: {om.description} "
+                        f"(workflow_id: {om.workflow_id})"
+                    )
+                parts.append(
+                    "\nCall memory_start with a workflow_id to follow one, "
+                    "or call memory_start without one to work freestyle."
+                )
+                return "\n".join(parts)
+            return (
+                "No matching workflows found.\n"
+                "Call memory_start to begin a freestyle recording session."
+            )
+
+
+class MemoryStartTool(BaseTool):
+    """Start a recording session, optionally following a workflow."""
+
+    name: str = "memory_start"
+    description: str = (
+        "Start a recording session. Optionally pass a workflow_id from "
+        "memory_search results to follow a specific workflow. "
+        "All subsequent tool calls are captured until memory_finish is called."
+    )
+    args_schema: Type[BaseModel] = StartInput
+
+    _client: MyelinClient = PrivateAttr()
+    _state: _MyelinToolState = PrivateAttr()
+
+    def __init__(
+        self,
+        client: MyelinClient,
+        state: _MyelinToolState,
+        **kwargs: Any,
+    ):
+        super().__init__(**kwargs)
+        self._client = client
+        self._state = state
+
+    def _run(
+        self,
+        workflow_id: str | None = None,
+        task_description: str | None = None,
+    ) -> str:
+        raise NotImplementedError("Use async: await memory_start.ainvoke(...)")
+
+    async def _arun(
+        self,
+        workflow_id: str | None = None,
+        task_description: str | None = None,
+    ) -> str:
+        try:
+            r = await self._client.start(
+                workflow_id=workflow_id,
+                task_description=task_description,
+            )
+        except Exception as exc:
+            logger.warning("memory_start failed: %s", exc, exc_info=True)
             return f"Error: {exc}"
 
         self._state.session_id = r.session_id
-        self._state.matched = r.matched
-        self._state.workflow = r.workflow
+        self._state.matched_workflow_id = r.matched_workflow_id
         self._state.active = True
 
-        if r.matched and r.workflow:
-            wf = r.workflow
-            return (
-                f"session_id: {r.session_id}\n"
-                f"\n"
-                f"{wf.overview}\n"
-                f"\n"
-                f"{wf.content}\n"
-                f"\n"
-                f"When done, call memory_finish."
-            )
-        else:
-            return (
-                f"session_id: {r.session_id}\n"
-                f"\n"
-                f"No matching workflow found. Work freestyle.\n"
-                f"When done, call memory_finish."
-            )
+        parts = [f"session_id: {r.session_id}"]
+        if r.matched_workflow_id:
+            parts.append(f"matched_workflow_id: {r.matched_workflow_id}")
+        parts.append("\nSession started. When done, call memory_finish.")
+        return "\n".join(parts)
 
 
 class MemoryFinishTool(BaseTool):
@@ -108,7 +197,7 @@ class MemoryFinishTool(BaseTool):
     name: str = "memory_finish"
     description: str = (
         "Finalize the current session and queue it for server-side evaluation. "
-        "Call this after recall, once the task is done. "
+        "Call this after memory_start, once the task is done. "
         "The server evaluates the session independently using an LLM judge."
     )
 
@@ -130,7 +219,7 @@ class MemoryFinishTool(BaseTool):
 
     async def _arun(self) -> str:
         if not self._state.session_id:
-            return "Error: no active session. Call memory_recall first."
+            return "Error: no active session. Call memory_start first."
 
         if not self._state.active:
             return "Session already finished."

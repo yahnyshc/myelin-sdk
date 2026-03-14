@@ -9,7 +9,14 @@ from importlib.metadata import version as _pkg_version
 from ._utils import validate_base_url
 from .errors import raise_for_status
 from .redact import RedactionConfig, get_default_config, redact_dict, redact_string
-from .types import CaptureResponse, FeedbackResponse, FinishResponse, ListWorkflowsResponse, RecallResponse, SyncResult
+from .types import (
+    CaptureResponse,
+    FeedbackResponse,
+    FinishResponse,
+    SearchResult,
+    StartResult,
+    SyncResult,
+)
 
 _VERSION = _pkg_version("myelin-sdk")
 
@@ -37,23 +44,36 @@ class MyelinClient:
             redaction if redaction is not None else get_default_config()
         )
 
-    async def list_workflows(self) -> ListWorkflowsResponse:
-        resp = await self._http.get("/v1/workflows")
-        raise_for_status(resp)
-        return ListWorkflowsResponse(**resp.json())
-
-    async def recall(
-        self, task_description: str | None = None, agent_id: str = "default",
-        workflow_id: str | None = None,
-    ) -> RecallResponse:
-        payload: dict = {"agent_id": agent_id}
+    async def search(
+        self,
+        task_description: str | None = None,
+        project_id: str | None = None,
+    ) -> SearchResult:
+        payload: dict = {}
         if task_description:
             payload["task_description"] = task_description
+        if project_id:
+            payload["project_id"] = project_id
+        resp = await self._http.post("/v1/search", json=payload)
+        raise_for_status(resp)
+        return SearchResult(**resp.json())
+
+    async def start(
+        self,
+        workflow_id: str | None = None,
+        task_description: str | None = None,
+        project_id: str | None = None,
+    ) -> StartResult:
+        payload: dict = {}
         if workflow_id:
             payload["workflow_id"] = workflow_id
-        resp = await self._http.post("/v1/recall", json=payload)
+        if task_description:
+            payload["task_description"] = task_description
+        if project_id:
+            payload["project_id"] = project_id
+        resp = await self._http.post("/v1/start", json=payload)
         raise_for_status(resp)
-        return RecallResponse(**resp.json())
+        return StartResult(**resp.json())
 
     async def capture(
         self,

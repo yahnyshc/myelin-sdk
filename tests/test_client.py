@@ -35,47 +35,107 @@ def _client_with(responses: list[dict]) -> MyelinClient:
     return client
 
 
-class TestRecall:
-    async def test_recall_hit(self):
+class TestSearch:
+    async def test_search_with_match(self):
+        client = _client_with([{
+            "json": {
+                "top_match": {
+                    "workflow_id": "wf_1",
+                    "title": "Deploy app",
+                    "description": "Deploy to production",
+                    "content": "## Step 1\nBuild\n\n## Step 2\nDeploy",
+                    "score": 0.95,
+                },
+                "other_matches": [
+                    {
+                        "workflow_id": "wf_2",
+                        "title": "Rollback",
+                        "description": "Rollback deployment",
+                        "score": 0.72,
+                    },
+                ],
+            },
+        }])
+        resp = await client.search("deploy the app")
+        assert resp.top_match is not None
+        assert resp.top_match.workflow_id == "wf_1"
+        assert resp.top_match.score == 0.95
+        assert resp.top_match.content is not None
+        assert len(resp.other_matches) == 1
+        assert resp.other_matches[0].workflow_id == "wf_2"
+        await client.close()
+
+    async def test_search_no_match(self):
+        client = _client_with([{
+            "json": {"top_match": None, "other_matches": []},
+        }])
+        resp = await client.search("unknown task")
+        assert resp.top_match is None
+        assert resp.other_matches == []
+        await client.close()
+
+    async def test_search_list_all(self):
+        client = _client_with([{
+            "json": {
+                "top_match": None,
+                "other_matches": [
+                    {
+                        "workflow_id": "wf_1",
+                        "title": "Deploy",
+                        "description": "Deploy app",
+                    },
+                    {
+                        "workflow_id": "wf_2",
+                        "title": "Rollback",
+                        "description": "Rollback deployment",
+                    },
+                ],
+            },
+        }])
+        resp = await client.search()
+        assert resp.top_match is None
+        assert len(resp.other_matches) == 2
+        await client.close()
+
+    async def test_search_error(self):
+        client = _client_with([{"status": 500, "json": {"error": "internal"}}])
+        with pytest.raises(httpx.HTTPStatusError):
+            await client.search("fail")
+        await client.close()
+
+
+class TestStart:
+    async def test_start_with_workflow(self):
         client = _client_with([{
             "json": {
                 "session_id": "ses_123",
-                "matched": True,
-                "workflow": {
-                    "id": "wf_1",
-                    "description": "test workflow",
-                    "overview": "overview text",
-                    "content": "## Step 1\nDo first thing\n\n## Step 2\nDo second thing",
-                },
+                "matched_workflow_id": "wf_1",
             },
         }])
-        resp = await client.recall("do something")
+        resp = await client.start(workflow_id="wf_1", task_description="deploy")
         assert resp.session_id == "ses_123"
-        assert resp.matched is True
-        assert resp.workflow is not None
-        assert resp.workflow.id == "wf_1"
+        assert resp.matched_workflow_id == "wf_1"
         await client.close()
 
-    async def test_recall_miss(self):
+    async def test_start_without_workflow(self):
         client = _client_with([{
-            "json": {"session_id": "ses_456", "matched": False},
+            "json": {"session_id": "ses_456", "matched_workflow_id": None},
         }])
-        resp = await client.recall("unknown task")
+        resp = await client.start(task_description="new task")
         assert resp.session_id == "ses_456"
-        assert resp.matched is False
-        assert resp.workflow is None
+        assert resp.matched_workflow_id is None
         await client.close()
 
-    async def test_recall_error(self):
+    async def test_start_error(self):
         client = _client_with([{"status": 500, "json": {"error": "internal"}}])
         with pytest.raises(httpx.HTTPStatusError):
-            await client.recall("fail")
+            await client.start()
         await client.close()
 
-    async def test_recall_error_is_myelin_api_error(self):
+    async def test_start_error_is_myelin_api_error(self):
         client = _client_with([{"status": 500, "json": {"error": "internal"}}])
         with pytest.raises(MyelinAPIError):
-            await client.recall("fail")
+            await client.start()
         await client.close()
 
 
@@ -258,9 +318,11 @@ class TestBaseUrlValidation:
 
 class TestContextManager:
     async def test_async_context_manager(self):
-        client = _client_with([{"json": {"session_id": "ses_1", "matched": False}}])
+        client = _client_with([{
+            "json": {"session_id": "ses_1", "matched_workflow_id": None},
+        }])
         async with client:
-            resp = await client.recall("task")
+            resp = await client.start(task_description="task")
             assert resp.session_id == "ses_1"
         # Client should be closed after exiting context
 
@@ -269,7 +331,7 @@ class TestMyelinAPIError:
     async def test_401_includes_hint(self):
         client = _client_with([{"status": 401, "json": {"error": "Unauthorized"}}])
         with pytest.raises(MyelinAPIError, match="Check your API key"):
-            await client.recall("task")
+            await client.search("task")
         await client.close()
 
     async def test_404_includes_hint(self):
@@ -281,26 +343,26 @@ class TestMyelinAPIError:
     async def test_429_includes_hint(self):
         client = _client_with([{"status": 429, "json": {"error": "Too many requests"}}])
         with pytest.raises(MyelinAPIError, match="Rate limit"):
-            await client.recall("task")
+            await client.search("task")
         await client.close()
 
     async def test_server_error_message_in_detail(self):
         client = _client_with([{"status": 500, "json": {"error": "DB connection lost"}}])
         with pytest.raises(MyelinAPIError, match="DB connection lost"):
-            await client.recall("task")
+            await client.search("task")
         await client.close()
 
     async def test_caught_by_httpx_handler(self):
         """MyelinAPIError is still caught by except httpx.HTTPStatusError."""
         client = _client_with([{"status": 401, "json": {"error": "Unauthorized"}}])
         with pytest.raises(httpx.HTTPStatusError):
-            await client.recall("task")
+            await client.search("task")
         await client.close()
 
     async def test_error_format(self):
         client = _client_with([{"status": 401, "json": {"error": "Unauthorized"}}])
         try:
-            await client.recall("task")
+            await client.search("task")
         except MyelinAPIError as e:
             assert str(e).startswith("Myelin API error (401)")
             assert "Unauthorized" in str(e)
