@@ -36,6 +36,17 @@ Add this to `.claude/settings.json`:
           }
         ]
       }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "myelin-capture"
+          }
+        ]
+      }
     ]
   }
 }

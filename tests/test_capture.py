@@ -501,6 +501,104 @@ class TestInvestigationTools:
             os.unlink(transcript.name)
 
 
+class TestToolFailure:
+    """PostToolUseFailure sends 'error' without 'tool_response'."""
+
+    def test_error_captured_with_is_error_flag(self, cc_session_id, project_dir, capture_server):
+        """Failure payload includes is_error=True and the error message."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_fail1")
+
+        result = run_hook({
+            "tool_name": "Bash",
+            "session_id": cc_session_id,
+            "tool_input": {"command": "false"},
+            "error": "Command exited with code 1",
+        }, project_dir, env=_capture_env(capture_server))
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        body = CaptureHandler.captured[0]
+        assert body["is_error"] is True
+        assert body["tool_response"] == "Command exited with code 1"
+        assert body["tool_name"] == "Bash"
+
+    def test_investigation_tool_error_preserves_message(
+        self, cc_session_id, project_dir, capture_server
+    ):
+        """Read/Glob/Grep failures capture the error (not stripped like success)."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_fail2")
+
+        result = run_hook({
+            "tool_name": "Read",
+            "session_id": cc_session_id,
+            "tool_input": {"file_path": "/nonexistent"},
+            "error": "File not found: /nonexistent",
+        }, project_dir, env=_capture_env(capture_server))
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        body = CaptureHandler.captured[0]
+        assert body["is_error"] is True
+        assert body["tool_response"] == "File not found: /nonexistent"
+        assert body["tool_name"] == "Read"
+
+    def test_success_has_no_is_error(self, cc_session_id, project_dir, capture_server):
+        """Normal success payloads should not have is_error field."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_fail3")
+
+        result = run_hook({
+            "tool_name": "Bash",
+            "session_id": cc_session_id,
+            "tool_input": {"command": "echo ok"},
+            "tool_response": "ok",
+        }, project_dir, env=_capture_env(capture_server))
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        assert "is_error" not in CaptureHandler.captured[0]
+
+    def test_recall_failure_no_session_file(self, cc_session_id, project_dir):
+        """Recall failure (error, no tool_response) should not create session file."""
+        result = run_hook({
+            "tool_name": "mcp__myelin__memory_recall",
+            "session_id": cc_session_id,
+            "error": "Connection refused",
+        }, project_dir)
+        assert result.returncode == 0
+        assert not session_file(project_dir, cc_session_id).exists()
+
+    def test_finish_failure_still_cleans_up(self, cc_session_id, project_dir):
+        """Finish failure still removes session file."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_cleanup")
+
+        result = run_hook({
+            "tool_name": "mcp__myelin__memory_finish",
+            "session_id": cc_session_id,
+            "error": "Server error",
+        }, project_dir)
+        assert result.returncode == 0
+        assert not sf.exists()
+
+    def test_skipped_tool_failure_still_skipped(self, cc_session_id, project_dir, capture_server):
+        """Failures for skipped tools (TaskCreate etc.) are still skipped."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_skip")
+
+        result = run_hook({
+            "tool_name": "TaskCreate",
+            "session_id": cc_session_id,
+            "error": "some error",
+        }, project_dir, env=_capture_env(capture_server))
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 0
+
+
 class TestRedaction:
     """Test redaction in the subprocess capture hook."""
 

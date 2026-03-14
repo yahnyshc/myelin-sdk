@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Myelin PostToolUse hook — captures tool calls and reasoning to the Myelin server.
+"""Myelin PostToolUse / PostToolUseFailure hook — captures tool calls to Myelin.
 
 Reads JSON from stdin provided by Claude Code. Extracts agent reasoning from the
-JSONL transcript and sends it alongside the tool call.
+JSONL transcript and sends it alongside the tool call. For failures, the error
+message is always captured (even for investigation tools whose output is normally
+stripped).
 """
 
 import json
@@ -394,8 +396,15 @@ def main() -> int:
 
     tool_input = data.get("tool_input", {})
 
-    # Investigation tools: keep input (file paths, patterns) but strip output
-    if tool_name in INVESTIGATION_TOOLS:
+    # Detect failures: PostToolUseFailure sends "error" without "tool_response"
+    is_error = "error" in data and "tool_response" not in data
+
+    # For errors, always capture the error message (even for investigation tools
+    # whose output is normally stripped — error messages are valuable signal).
+    if is_error:
+        tool_response = str(data.get("error", ""))
+    elif tool_name in INVESTIGATION_TOOLS:
+        # Investigation tools: keep input (file paths, patterns) but strip output
         tool_response = ""
     else:
         tool_response = str(data.get("tool_response", ""))
@@ -430,6 +439,8 @@ def main() -> int:
     }
     if reasoning:
         capture_payload["reasoning"] = reasoning
+    if is_error:
+        capture_payload["is_error"] = True
 
     payload = json.dumps(capture_payload).encode()
 
