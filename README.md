@@ -91,3 +91,24 @@ The `integrations/langchain/` directory is the template for new integrations. To
 5. Add a convenience method on `MyelinSession`
 
 See `integrations/langchain/handler.py` for a complete reference implementation.
+
+## Syncing Local Procedures
+
+Sync markdown procedure files from your repo to Myelin:
+
+```bash
+pip install myelin-sdk
+
+# Sync all procedures from default directory (.claude/procedures/*.md)
+myelin-sync
+
+# Sync from a custom directory
+myelin-sync --dir ./runbooks
+
+# Sync specific files
+myelin-sync deploy.md hotfix.md
+```
+
+Requires `MYELIN_API_KEY`, `MYELIN_BASE_URL`, and `MYELIN_PROJECT_ID` environment variables (or reads from `.mcp.json`).
+
+Sync is idempotent — running twice with unchanged files produces no updates. Deleting a local file does not remove the server copy.

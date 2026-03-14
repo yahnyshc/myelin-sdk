@@ -10,6 +10,8 @@ from .types import (
     ListWorkflowItem,
     ListWorkflowsResponse,
     RecallResponse,
+    SyncFileResult,
+    SyncResult,
     WorkflowInfo,
 )
 
@@ -25,6 +27,8 @@ __all__ = [
     "ListWorkflowItem",
     "ListWorkflowsResponse",
     "RecallResponse",
+    "SyncFileResult",
+    "SyncResult",
     "WorkflowInfo",
     "__version__",
 ]

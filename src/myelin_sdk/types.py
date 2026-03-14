@@ -46,3 +46,17 @@ class FinishResponse(BaseModel):
     warning: str | None = None
 
 
+class SyncFileResult(BaseModel):
+    path: str
+    status: str  # "created", "updated", "unchanged"
+    workflow_id: str | None = None
+
+
+class SyncResult(BaseModel):
+    details: list[SyncFileResult] = []
+    total: int = 0
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+
+

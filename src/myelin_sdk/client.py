@@ -9,7 +9,7 @@ from importlib.metadata import version as _pkg_version
 from ._utils import validate_base_url
 from .errors import raise_for_status
 from .redact import RedactionConfig, get_default_config, redact_dict, redact_string
-from .types import CaptureResponse, FeedbackResponse, FinishResponse, ListWorkflowsResponse, RecallResponse
+from .types import CaptureResponse, FeedbackResponse, FinishResponse, ListWorkflowsResponse, RecallResponse, SyncResult
 
 _VERSION = _pkg_version("myelin-sdk")
 
@@ -100,6 +100,24 @@ class MyelinClient:
         resp = await self._http.post(f"/v1/sessions/{session_id}/finish")
         raise_for_status(resp)
         return FinishResponse(**resp.json())
+
+    async def sync_workflows(
+        self,
+        files: list[dict],
+    ) -> SyncResult:
+        """Sync local markdown procedure files to the Myelin server.
+
+        Each entry in *files* must have:
+          - ``path``: relative file path (used as identifier)
+          - ``content``: full markdown content
+          - ``description``: short description (from first heading or filename)
+        """
+        resp = await self._http.post(
+            "/v1/workflows/sync",
+            json={"files": files},
+        )
+        raise_for_status(resp)
+        return SyncResult(**resp.json())
 
     async def close(self):
         await self._http.aclose()

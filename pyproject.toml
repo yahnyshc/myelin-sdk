@@ -27,6 +27,7 @@ classifiers = [
 
 [project.scripts]
 myelin-capture = "myelin_sdk.claude_code.capture:main"
+myelin-sync = "myelin_sdk.sync:main"
 
 [project.urls]
 Homepage = "https://myelin.sh"
