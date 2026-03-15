@@ -60,9 +60,10 @@ class MemorySearchTool(BaseTool):
 
     name: str = "memory_search"
     description: str = (
-        "Search for matching workflows. Returns top_match (with full content) "
-        "and other_matches. Review the results, then call memory_start to begin "
-        "a recording session."
+        "Search procedural memory for a proven procedure matching this task. "
+        "Call BEFORE starting any task. If a match is found, follow its steps. "
+        "If no match, proceed normally. Either way, call memory_start next to "
+        "begin recording."
     )
     args_schema: Type[BaseModel] = SearchInput
 
@@ -140,9 +141,10 @@ class MemoryStartTool(BaseTool):
 
     name: str = "memory_start"
     description: str = (
-        "Start a recording session. Optionally pass a workflow_id from "
-        "memory_search results to follow a specific workflow. "
-        "All subsequent tool calls are captured until memory_finish is called."
+        "Begin recording this task. Call AFTER memory_search, whether or not a "
+        "match was found. Pass workflow_id from search results to follow a "
+        "procedure, or pass task_description for a new task. All subsequent "
+        "tool calls are captured until memory_finish is called."
     )
     args_schema: Type[BaseModel] = StartInput
 
@@ -196,9 +198,9 @@ class MemoryFinishTool(BaseTool):
 
     name: str = "memory_finish"
     description: str = (
-        "Finalize the current session and queue it for server-side evaluation. "
-        "Call this after memory_start, once the task is done. "
-        "The server evaluates the session independently using an LLM judge."
+        "Finalize the recording session and queue it for evaluation. "
+        "Always call this when the task is complete — even if it failed. "
+        "Skipping finish leaves the session orphaned."
     )
 
     _client: MyelinClient = PrivateAttr()
