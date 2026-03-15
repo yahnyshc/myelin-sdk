@@ -46,7 +46,7 @@ def send_reply(ticket_id: str, message: str) -> str:
 SYSTEM_PROMPT = """\
 You are a support agent. Before starting any task, call memory_search with a \
 description of what you're about to do. If a workflow is found, call \
-memory_start with its workflow_id. When done, call memory_finish.
+memory_record with its workflow_id. When done, call memory_finish.
 """
 
 

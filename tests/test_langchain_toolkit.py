@@ -28,7 +28,7 @@ class TestToolkitCreation:
         tk = MyelinToolkit(api_key="test_key")
         assert len(tk.tools) == 3
         names = {t.name for t in tk.tools}
-        assert names == {"memory_search", "memory_start", "memory_finish"}
+        assert names == {"memory_search", "memory_record", "memory_finish"}
 
     def test_handler_is_created(self):
         from myelin_sdk.integrations.langchain.handler import MyelinCallbackHandler
@@ -143,7 +143,7 @@ class TestHandlerSkipsToolTools:
 
         assert run_id not in handler._pending_tools
 
-    async def test_skips_memory_start(self):
+    async def test_skips_memory_record(self):
         from myelin_sdk.integrations.langchain.handler import MyelinCallbackHandler
 
         client = AsyncMock()
@@ -153,7 +153,7 @@ class TestHandlerSkipsToolTools:
 
         run_id = uuid4()
         await handler.on_tool_start(
-            {"name": "memory_start"},
+            {"name": "memory_record"},
             '{"workflow_id": "wf_1"}',
             run_id=run_id,
         )

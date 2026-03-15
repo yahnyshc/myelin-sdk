@@ -27,14 +27,14 @@ def _make_search_tool(client=None, state=None):
     return MemorySearchTool(client=client, state=state), client, state
 
 
-def _make_start_tool(client=None, state=None):
-    from myelin_sdk.integrations.langchain.tools import MemoryStartTool
+def _make_record_tool(client=None, state=None):
+    from myelin_sdk.integrations.langchain.tools import MemoryRecordTool
 
     if client is None:
         client = AsyncMock()
     if state is None:
         state = _make_state()
-    return MemoryStartTool(client=client, state=state), client, state
+    return MemoryRecordTool(client=client, state=state), client, state
 
 
 def _make_finish_tool(client=None, state=None):
@@ -79,7 +79,7 @@ class TestMemorySearchTool:
         assert "Deploy app" in result
         assert "Build the Docker image" in result
         assert "Push to registry" in result
-        assert "memory_start" in result
+        assert "memory_record" in result
         assert "Rollback" in result
         assert state.last_search is not None
 
@@ -98,7 +98,7 @@ class TestMemorySearchTool:
         result = await tool._arun("some new task")
 
         assert "No matching workflows found" in result
-        assert "memory_start" in result
+        assert "memory_record" in result
 
     async def test_miss_with_other_matches(self):
         from myelin_sdk.types import SearchMatch, SearchResult
@@ -122,7 +122,7 @@ class TestMemorySearchTool:
 
         assert "No strong match" in result
         assert "Deploy" in result
-        assert "memory_start" in result
+        assert "memory_record" in result
 
     async def test_error_returns_string(self):
         client = AsyncMock()
@@ -135,7 +135,7 @@ class TestMemorySearchTool:
         assert "network fail" in result
 
 
-class TestMemoryStartTool:
+class TestMemoryRecordTool:
     async def test_start_with_workflow(self):
         from myelin_sdk.types import StartResult
 
@@ -147,7 +147,7 @@ class TestMemoryStartTool:
             )
         )
 
-        tool, _, state = _make_start_tool(client=client)
+        tool, _, state = _make_record_tool(client=client)
         result = await tool._arun(workflow_id="wf_1", task_description="deploy")
 
         assert "ses_123" in result
@@ -168,7 +168,7 @@ class TestMemoryStartTool:
             )
         )
 
-        tool, _, state = _make_start_tool(client=client)
+        tool, _, state = _make_record_tool(client=client)
         result = await tool._arun(task_description="new task")
 
         assert "ses_456" in result
@@ -180,7 +180,7 @@ class TestMemoryStartTool:
         client = AsyncMock()
         client.start = AsyncMock(side_effect=RuntimeError("network fail"))
 
-        tool, _, state = _make_start_tool(client=client)
+        tool, _, state = _make_record_tool(client=client)
         result = await tool._arun()
 
         assert "Error:" in result
@@ -245,7 +245,7 @@ class TestMemoryFinishTool:
         result = await tool._arun()
 
         assert "Error" in result
-        assert "memory_start" in result
+        assert "memory_record" in result
 
     async def test_double_finish_returns_already_finished(self):
         state = _make_state()

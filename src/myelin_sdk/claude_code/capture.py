@@ -22,7 +22,7 @@ from myelin_sdk.redact import RedactionConfig, redact_dict, redact_string
 
 MYELIN_TOOL_PREFIX = "mcp__myelin__"
 _ENV_LOADED = False
-START = f"{MYELIN_TOOL_PREFIX}memory_start"
+RECORD = f"{MYELIN_TOOL_PREFIX}memory_record"
 FINISH = f"{MYELIN_TOOL_PREFIX}memory_finish"
 CAPTURE_TIMEOUT = 5  # seconds
 CAPTURE_RETRIES = 2
@@ -330,8 +330,8 @@ def main() -> int:
             log(str(exc))
             return 0
 
-    # 1. start — persist Myelin session_id
-    if tool_name == START:
+    # 1. record — persist Myelin session_id
+    if tool_name == RECORD:
         if not myelin_url or not myelin_key:
             log(
                 "MYELIN_URL and MYELIN_API_KEY must be set. "
