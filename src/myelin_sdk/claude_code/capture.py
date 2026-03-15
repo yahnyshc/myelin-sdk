@@ -215,6 +215,11 @@ def extract_session_id(tool_response):
         sid = _extract_from_text(text)
         if sid:
             return sid
+        # Text might be JSON (MCP tools return JSON strings in content blocks)
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     if not isinstance(data, dict):
         return None
