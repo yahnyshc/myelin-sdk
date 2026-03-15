@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class MyelinToolkit:
     """Produces LangChain tools + callback handler linked via shared state.
 
-    The agent calls ``memory_search``, ``memory_record``, and ``memory_finish``
+    The agent calls ``search``, ``record``, and ``finish``
     autonomously; the handler captures all other tool calls.
 
     Usage::

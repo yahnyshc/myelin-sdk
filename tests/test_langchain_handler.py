@@ -69,14 +69,14 @@ class TestOnToolStart:
         run_id = uuid4()
         parent_id = uuid4()
         await handler.on_tool_start(
-            {"name": "search"},
+            {"name": "web_search"},
             '{"query": "python"}',
             run_id=run_id,
             parent_run_id=parent_id,
         )
         assert run_id in handler._pending_tools
         pending = handler._pending_tools[run_id]
-        assert pending["name"] == "search"
+        assert pending["name"] == "web_search"
         assert pending["input"] == {"query": "python"}
         assert pending["parent_run_id"] == parent_id
 
@@ -108,7 +108,7 @@ class TestOnToolEnd:
             run_id=llm_run_id,
         )
         await handler.on_tool_start(
-            {"name": "search"},
+            {"name": "web_search"},
             '{"q": "test"}',
             run_id=tool_run_id,
             parent_run_id=llm_run_id,
@@ -118,7 +118,7 @@ class TestOnToolEnd:
         client.capture.assert_awaited_once()
         call_kwargs = client.capture.call_args.kwargs
         assert call_kwargs["session_id"] == "ses_test"
-        assert call_kwargs["tool_name"] == "search"
+        assert call_kwargs["tool_name"] == "web_search"
         assert call_kwargs["tool_input"] == {"q": "test"}
         assert call_kwargs["tool_response"] == "result: found it"
         assert call_kwargs["reasoning"] == "Let me search for that"

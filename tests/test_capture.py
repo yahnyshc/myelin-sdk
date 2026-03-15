@@ -107,7 +107,7 @@ class TestMissingFields:
 class TestStart:
     def test_creates_session_file(self, cc_session_id, project_dir):
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_record",
+            "tool_name": "mcp__myelin__record",
             "session_id": cc_session_id,
             "tool_response": {"session_id": "ses_abc123"},
         }, project_dir)
@@ -119,7 +119,7 @@ class TestStart:
     def test_nested_result_string(self, cc_session_id, project_dir):
         """Handle {result: '{"session_id": "..."}'}."""
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_record",
+            "tool_name": "mcp__myelin__record",
             "session_id": cc_session_id,
             "tool_response": {"result": json.dumps({"session_id": "ses_nested"})},
         }, project_dir)
@@ -129,7 +129,7 @@ class TestStart:
     def test_nested_result_object(self, cc_session_id, project_dir):
         """Handle {result: {session_id: "..."}}."""
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_record",
+            "tool_name": "mcp__myelin__record",
             "session_id": cc_session_id,
             "tool_response": {"result": {"session_id": "ses_obj"}},
         }, project_dir)
@@ -139,17 +139,44 @@ class TestStart:
     def test_string_response(self, cc_session_id, project_dir):
         """Handle tool_response as a raw JSON string."""
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_record",
+            "tool_name": "mcp__myelin__record",
             "session_id": cc_session_id,
             "tool_response": json.dumps({"session_id": "ses_str"}),
         }, project_dir)
         assert result.returncode == 0
         assert session_file(project_dir, cc_session_id).read_text() == "ses_str"
 
+    def test_plain_text_session_started(self, cc_session_id, project_dir):
+        """Handle plain-text MCP response: 'Session started: ses_...'."""
+        result = run_hook({
+            "tool_name": "mcp__myelin__record",
+            "session_id": cc_session_id,
+            "tool_response": (
+                "Session started: ses_plain\n\n"
+                "Recording is active. Execute the task now, then call "
+                'finish(session_id="ses_plain") when done.'
+            ),
+        }, project_dir)
+        assert result.returncode == 0
+        assert session_file(project_dir, cc_session_id).read_text() == "ses_plain"
+
+    def test_content_block_session_started(self, cc_session_id, project_dir):
+        """Handle MCP content blocks wrapping plain-text response."""
+        result = run_hook({
+            "tool_name": "mcp__myelin__record",
+            "session_id": cc_session_id,
+            "tool_response": [{"type": "text", "text": (
+                "Session started: ses_cb\n\n"
+                "Recording is active."
+            )}],
+        }, project_dir)
+        assert result.returncode == 0
+        assert session_file(project_dir, cc_session_id).read_text() == "ses_cb"
+
     def test_missing_env_vars(self, cc_session_id, project_dir):
         result = run_hook(
             {
-                "tool_name": "mcp__myelin__memory_record",
+                "tool_name": "mcp__myelin__record",
                 "session_id": cc_session_id,
                 "tool_response": {"session_id": "ses_x"},
             },
@@ -162,7 +189,7 @@ class TestStart:
     def test_no_session_id_in_response(self, cc_session_id, project_dir):
         """If tool_response has no session_id, don't create file."""
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_record",
+            "tool_name": "mcp__myelin__record",
             "session_id": cc_session_id,
             "tool_response": {"matches": []},
         }, project_dir)
@@ -175,7 +202,7 @@ class TestStart:
         result = subprocess.run(
             [sys.executable, str(HOOK_PATH)],
             input=json.dumps({
-                "tool_name": "mcp__myelin__memory_record",
+                "tool_name": "mcp__myelin__record",
                 "session_id": cc_session_id,
                 "tool_response": {"session_id": "ses_noproj"},
             }),
@@ -196,7 +223,7 @@ class TestStart:
         old_file.write_text("ses_old")
 
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_record",
+            "tool_name": "mcp__myelin__record",
             "session_id": cc_session_id,
             "tool_response": {"session_id": "ses_new"},
         }, project_dir)
@@ -217,7 +244,7 @@ class TestFinish:
         sf.write_text("ses_todelete")
 
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_finish",
+            "tool_name": "mcp__myelin__finish",
             "session_id": cc_session_id,
         }, project_dir)
         assert result.returncode == 0
@@ -225,7 +252,7 @@ class TestFinish:
 
     def test_missing_file_ok(self, cc_session_id, project_dir):
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_finish",
+            "tool_name": "mcp__myelin__finish",
             "session_id": cc_session_id,
         }, project_dir)
         assert result.returncode == 0
@@ -586,7 +613,7 @@ class TestToolFailure:
     def test_start_failure_no_session_file(self, cc_session_id, project_dir):
         """Start failure (error, no tool_response) should not create session file."""
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_record",
+            "tool_name": "mcp__myelin__record",
             "session_id": cc_session_id,
             "error": "Connection refused",
         }, project_dir)
@@ -600,7 +627,7 @@ class TestToolFailure:
         sf.write_text("ses_cleanup")
 
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_finish",
+            "tool_name": "mcp__myelin__finish",
             "session_id": cc_session_id,
             "error": "Server error",
         }, project_dir)
@@ -754,7 +781,7 @@ class TestPathTraversal:
         """A malicious session ID should still create a file in the sessions dir."""
         malicious_id = "../../evil"
         result = run_hook({
-            "tool_name": "mcp__myelin__memory_record",
+            "tool_name": "mcp__myelin__record",
             "session_id": malicious_id,
             "tool_response": {"session_id": "ses_safe"},
         }, project_dir)
@@ -795,7 +822,7 @@ class TestMcpJsonLoading:
 
             result = run_hook(
                 {
-                    "tool_name": "mcp__myelin__memory_record",
+                    "tool_name": "mcp__myelin__record",
                     "session_id": "test_mcp_load",
                     "tool_response": {"session_id": "ses_mcp"},
                 },
@@ -831,7 +858,7 @@ class TestMcpJsonLoading:
             # Explicit env vars should win
             result = run_hook(
                 {
-                    "tool_name": "mcp__myelin__memory_record",
+                    "tool_name": "mcp__myelin__record",
                     "session_id": "test_env_precedence",
                     "tool_response": {"session_id": "ses_env"},
                 },
@@ -845,7 +872,7 @@ class TestMcpJsonLoading:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = run_hook(
                 {
-                    "tool_name": "mcp__myelin__memory_record",
+                    "tool_name": "mcp__myelin__record",
                     "session_id": "test_no_mcp",
                     "tool_response": {"session_id": "ses_none"},
                 },
@@ -920,7 +947,7 @@ class TestUrlValidation:
 
             result = run_hook(
                 {
-                    "tool_name": "mcp__myelin__memory_record",
+                    "tool_name": "mcp__myelin__record",
                     "session_id": "test_mcp_ssrf",
                     "tool_response": {"session_id": "ses_ssrf"},
                 },
@@ -952,7 +979,7 @@ class TestSessionCleanup:
 
         # Trigger start which runs cleanup
         run_hook({
-            "tool_name": "mcp__myelin__memory_record",
+            "tool_name": "mcp__myelin__record",
             "session_id": cc_session_id,
             "tool_response": {"session_id": "ses_new"},
         }, project_dir)

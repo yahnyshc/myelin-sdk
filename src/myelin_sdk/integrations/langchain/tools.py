@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class SearchInput(BaseModel):
-    """Input for memory_search."""
+    """Input for search."""
 
     task_description: str = Field(
         description=(
@@ -37,13 +37,13 @@ class SearchInput(BaseModel):
 
 
 class RecordInput(BaseModel):
-    """Input for memory_record."""
+    """Input for record."""
 
     workflow_id: str | None = Field(
         default=None,
         description=(
             "ID of the workflow to follow. Pass the workflow_id from "
-            "memory_search results, or omit to start without a workflow."
+            "search results, or omit to start without a workflow."
         ),
     )
     task_description: str | None = Field(
@@ -58,11 +58,11 @@ class RecordInput(BaseModel):
 class MemorySearchTool(BaseTool):
     """Search for matching workflows in procedural memory."""
 
-    name: str = "memory_search"
+    name: str = "search"
     description: str = (
         "Look up whether a proven procedure exists for a given task. "
         "Returns the best match with full content, plus summaries of other candidates. "
-        "Use the returned workflow_id with memory_record to follow a procedure."
+        "Use the returned workflow_id with record to follow a procedure."
     )
     args_schema: Type[BaseModel] = SearchInput
 
@@ -80,13 +80,13 @@ class MemorySearchTool(BaseTool):
         self._state = state
 
     def _run(self, task_description: str) -> str:
-        raise NotImplementedError("Use async: await memory_search.ainvoke(...)")
+        raise NotImplementedError("Use async: await search.ainvoke(...)")
 
     async def _arun(self, task_description: str) -> str:
         try:
             r = await self._client.search(task_description)
         except Exception as exc:
-            logger.warning("memory_search failed: %s", exc, exc_info=True)
+            logger.warning("search failed: %s", exc, exc_info=True)
             return f"Error: {exc}"
 
         self._state.last_search = r
@@ -111,9 +111,9 @@ class MemorySearchTool(BaseTool):
                     )
                 parts.append("")
             parts.append(
-                "To follow this workflow, call memory_record with the "
+                "To follow this workflow, call record with the "
                 "workflow_id. To start without a workflow, call "
-                "memory_record with no workflow_id."
+                "record with no workflow_id."
             )
             return "\n".join(parts)
         else:
@@ -125,20 +125,20 @@ class MemorySearchTool(BaseTool):
                         f"(workflow_id: {om.workflow_id})"
                     )
                 parts.append(
-                    "\nCall memory_record with a workflow_id to follow one, "
-                    "or call memory_record without one to work freestyle."
+                    "\nCall record with a workflow_id to follow one, "
+                    "or call record without one to work freestyle."
                 )
                 return "\n".join(parts)
             return (
                 "No matching workflows found.\n"
-                "Call memory_record to begin a freestyle recording session."
+                "Call record to begin a freestyle recording session."
             )
 
 
 class MemoryRecordTool(BaseTool):
     """Start a recording session, optionally following a workflow."""
 
-    name: str = "memory_record"
+    name: str = "record"
     description: str = (
         "Activate session recording and begin capturing tool calls. "
         "Pass workflow_id to follow a known procedure, or task_description "
@@ -165,7 +165,7 @@ class MemoryRecordTool(BaseTool):
         workflow_id: str | None = None,
         task_description: str | None = None,
     ) -> str:
-        raise NotImplementedError("Use async: await memory_record.ainvoke(...)")
+        raise NotImplementedError("Use async: await record.ainvoke(...)")
 
     async def _arun(
         self,
@@ -178,7 +178,7 @@ class MemoryRecordTool(BaseTool):
                 task_description=task_description,
             )
         except Exception as exc:
-            logger.warning("memory_record failed: %s", exc, exc_info=True)
+            logger.warning("record failed: %s", exc, exc_info=True)
             return f"Error: {exc}"
 
         self._state.session_id = r.session_id
@@ -188,14 +188,14 @@ class MemoryRecordTool(BaseTool):
         parts = [f"session_id: {r.session_id}"]
         if r.matched_workflow_id:
             parts.append(f"matched_workflow_id: {r.matched_workflow_id}")
-        parts.append("\nSession started. When done, call memory_finish.")
+        parts.append("\nSession started. When done, call finish.")
         return "\n".join(parts)
 
 
 class MemoryFinishTool(BaseTool):
     """Finalize the session and queue it for evaluation."""
 
-    name: str = "memory_finish"
+    name: str = "finish"
     description: str = (
         "Close the recording session and queue it for evaluation. "
         "Call this when the task is complete, whether it succeeded or failed."
@@ -215,11 +215,11 @@ class MemoryFinishTool(BaseTool):
         self._state = state
 
     def _run(self) -> str:
-        raise NotImplementedError("Use async: await memory_finish.ainvoke(...)")
+        raise NotImplementedError("Use async: await finish.ainvoke(...)")
 
     async def _arun(self) -> str:
         if not self._state.session_id:
-            return "Error: no active session. Call memory_record first."
+            return "Error: no active session. Call record first."
 
         if not self._state.active:
             return "Session already finished."
@@ -227,7 +227,7 @@ class MemoryFinishTool(BaseTool):
         try:
             r = await self._client.finish(self._state.session_id)
         except Exception as exc:
-            logger.warning("memory_finish failed: %s", exc, exc_info=True)
+            logger.warning("finish failed: %s", exc, exc_info=True)
             return f"Error: {exc}"
 
         self._state.active = False

@@ -26,10 +26,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SKIP_TOOLS: frozenset[str] = frozenset({
-    "memory_search",
-    "memory_record",
-    "memory_hint",
-    "memory_finish",
+    "search",
+    "record",
+    "hint",
+    "finish",
 })
 
 

@@ -79,7 +79,7 @@ class TestMemorySearchTool:
         assert "Deploy app" in result
         assert "Build the Docker image" in result
         assert "Push to registry" in result
-        assert "memory_record" in result
+        assert "record" in result
         assert "Rollback" in result
         assert state.last_search is not None
 
@@ -98,7 +98,7 @@ class TestMemorySearchTool:
         result = await tool._arun("some new task")
 
         assert "No matching workflows found" in result
-        assert "memory_record" in result
+        assert "record" in result
 
     async def test_miss_with_other_matches(self):
         from myelin_sdk.types import SearchMatch, SearchResult
@@ -122,7 +122,7 @@ class TestMemorySearchTool:
 
         assert "No strong match" in result
         assert "Deploy" in result
-        assert "memory_record" in result
+        assert "record" in result
 
     async def test_error_returns_string(self):
         client = AsyncMock()
@@ -152,7 +152,7 @@ class TestMemoryRecordTool:
 
         assert "ses_123" in result
         assert "wf_1" in result
-        assert "memory_finish" in result
+        assert "finish" in result
         assert state.session_id == "ses_123"
         assert state.matched_workflow_id == "wf_1"
         assert state.active is True
@@ -172,7 +172,7 @@ class TestMemoryRecordTool:
         result = await tool._arun(task_description="new task")
 
         assert "ses_456" in result
-        assert "memory_finish" in result
+        assert "finish" in result
         assert state.session_id == "ses_456"
         assert state.active is True
 
@@ -245,7 +245,7 @@ class TestMemoryFinishTool:
         result = await tool._arun()
 
         assert "Error" in result
-        assert "memory_record" in result
+        assert "record" in result
 
     async def test_double_finish_returns_already_finished(self):
         state = _make_state()

@@ -28,7 +28,7 @@ class TestToolkitCreation:
         tk = MyelinToolkit(api_key="test_key")
         assert len(tk.tools) == 3
         names = {t.name for t in tk.tools}
-        assert names == {"memory_search", "memory_record", "memory_finish"}
+        assert names == {"search", "record", "finish"}
 
     def test_handler_is_created(self):
         from myelin_sdk.integrations.langchain.handler import MyelinCallbackHandler
@@ -136,7 +136,7 @@ class TestHandlerSkipsToolTools:
 
         run_id = uuid4()
         await handler.on_tool_start(
-            {"name": "memory_search"},
+            {"name": "search"},
             '{"task_description": "test"}',
             run_id=run_id,
         )
@@ -153,7 +153,7 @@ class TestHandlerSkipsToolTools:
 
         run_id = uuid4()
         await handler.on_tool_start(
-            {"name": "memory_record"},
+            {"name": "record"},
             '{"workflow_id": "wf_1"}',
             run_id=run_id,
         )
@@ -170,7 +170,7 @@ class TestHandlerSkipsToolTools:
 
         run_id = uuid4()
         await handler.on_tool_start(
-            {"name": "memory_hint"},
+            {"name": "hint"},
             '{"step_number": 1}',
             run_id=run_id,
         )
@@ -187,7 +187,7 @@ class TestHandlerSkipsToolTools:
 
         run_id = uuid4()
         await handler.on_tool_start(
-            {"name": "memory_finish"},
+            {"name": "finish"},
             '{}',
             run_id=run_id,
         )
@@ -204,7 +204,7 @@ class TestHandlerSkipsToolTools:
 
         run_id = uuid4()
         await handler.on_tool_start(
-            {"name": "search"},
+            {"name": "web_search"},
             '{"q": "test"}',
             run_id=run_id,
         )
@@ -229,7 +229,7 @@ class TestHandlerDynamicSessionId:
 
         run_id = uuid4()
         await handler.on_tool_start(
-            {"name": "search"}, '{"q": "test"}', run_id=run_id
+            {"name": "web_search"}, '{"q": "test"}', run_id=run_id
         )
         await handler.on_tool_end("results", run_id=run_id)
 
@@ -249,7 +249,7 @@ class TestHandlerDynamicSessionId:
 
         run_id = uuid4()
         await handler.on_tool_start(
-            {"name": "search"}, '{"q": "test"}', run_id=run_id
+            {"name": "web_search"}, '{"q": "test"}', run_id=run_id
         )
         await handler.on_tool_end("results", run_id=run_id)
 
@@ -272,7 +272,7 @@ class TestHandlerDynamicSessionId:
 
         run_id = uuid4()
         await handler.on_tool_start(
-            {"name": "search"}, '{"q": "test"}', run_id=run_id
+            {"name": "web_search"}, '{"q": "test"}', run_id=run_id
         )
         await handler.on_tool_end("results", run_id=run_id)
 

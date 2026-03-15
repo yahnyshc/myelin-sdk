@@ -22,8 +22,8 @@ from myelin_sdk.redact import RedactionConfig, redact_dict, redact_string
 
 MYELIN_TOOL_PREFIX = "mcp__myelin__"
 _ENV_LOADED = False
-RECORD = f"{MYELIN_TOOL_PREFIX}memory_record"
-FINISH = f"{MYELIN_TOOL_PREFIX}memory_finish"
+RECORD = f"{MYELIN_TOOL_PREFIX}record"
+FINISH = f"{MYELIN_TOOL_PREFIX}finish"
 CAPTURE_TIMEOUT = 5  # seconds
 CAPTURE_RETRIES = 2
 RETRY_DELAY = 1.0  # seconds
@@ -166,11 +166,17 @@ def extract_reasoning_from_transcript(transcript_path: str, tool_use_id: str) ->
 
 
 def _extract_from_text(text: str):
-    """Extract session_id from plain text like 'session_id: ses_abc123\\n...'"""
-    if text.startswith("session_id:"):
-        sid = text.split("\n", 1)[0].split(":", 1)[1].strip()
-        if sid:
-            return sid
+    """Extract session_id from plain text.
+
+    Handles both formats:
+      - 'session_id: ses_abc123\\n...'  (legacy JSON response)
+      - 'Session started: ses_abc123\\n...'  (plain-text MCP response)
+    """
+    for prefix in ("session_id:", "Session started:"):
+        if text.startswith(prefix):
+            sid = text.split("\n", 1)[0].split(":", 1)[1].strip()
+            if sid:
+                return sid
     return None
 
 

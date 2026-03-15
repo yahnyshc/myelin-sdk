@@ -56,7 +56,7 @@ Add this to `.claude/settings.json`:
 
 Add `.mcp.json` to your `.gitignore` (it contains your API key).
 
-The hook captures every tool call automatically. Use `memory.search` to find workflows, `memory.record` to begin a session, and `memory.finish` to end it.
+The hook captures every tool call automatically. Use `search` to find workflows, `record` to begin a session, and `finish` to end it.
 
 ## Python SDK / LangChain
 

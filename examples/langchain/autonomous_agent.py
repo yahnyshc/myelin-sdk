@@ -44,9 +44,9 @@ def send_reply(ticket_id: str, message: str) -> str:
 
 
 SYSTEM_PROMPT = """\
-You are a support agent. Before starting any task, call memory_search with a \
+You are a support agent. Before starting any task, call search with a \
 description of what you're about to do. If a workflow is found, call \
-memory_record with its workflow_id. When done, call memory_finish.
+record with its workflow_id. When done, call finish.
 """
 
 
@@ -97,7 +97,7 @@ async def main():
                 )
 
         print(f"Agent response: {response.content}")
-    # MyelinToolkit auto-finishes if the agent forgot to call memory_finish
+    # MyelinToolkit auto-finishes if the agent forgot to call finish
 
 
 if __name__ == "__main__":
