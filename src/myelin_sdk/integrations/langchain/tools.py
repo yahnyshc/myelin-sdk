@@ -15,6 +15,7 @@ except ImportError:
     )
 
 from ...client import MyelinClient
+from ...errors import MyelinAPIError
 from .state import _MyelinToolState
 
 logger = logging.getLogger(__name__)
@@ -85,9 +86,12 @@ class MemorySearchTool(BaseTool):
     async def _arun(self, task_description: str) -> str:
         try:
             r = await self._client.search(task_description)
-        except Exception as exc:
-            logger.warning("search failed: %s", exc, exc_info=True)
-            return f"Error: {exc}"
+        except MyelinAPIError as exc:
+            logger.warning("search failed: %s", exc.detail)
+            return f"Error: {exc.detail}"
+        except Exception:
+            logger.warning("search failed", exc_info=True)
+            return "Error: unexpected failure"
 
         self._state.last_search = r
 
@@ -177,9 +181,12 @@ class MemoryRecordTool(BaseTool):
                 workflow_id=workflow_id,
                 task_description=task_description,
             )
-        except Exception as exc:
-            logger.warning("record failed: %s", exc, exc_info=True)
-            return f"Error: {exc}"
+        except MyelinAPIError as exc:
+            logger.warning("record failed: %s", exc.detail)
+            return f"Error: {exc.detail}"
+        except Exception:
+            logger.warning("record failed", exc_info=True)
+            return "Error: unexpected failure"
 
         self._state.session_id = r.session_id
         self._state.matched_workflow_id = r.matched_workflow_id
@@ -226,9 +233,12 @@ class MemoryFinishTool(BaseTool):
 
         try:
             r = await self._client.finish(self._state.session_id)
-        except Exception as exc:
-            logger.warning("finish failed: %s", exc, exc_info=True)
-            return f"Error: {exc}"
+        except MyelinAPIError as exc:
+            logger.warning("finish failed: %s", exc.detail)
+            return f"Error: {exc.detail}"
+        except Exception:
+            logger.warning("finish failed", exc_info=True)
+            return "Error: unexpected failure"
 
         self._state.active = False
 

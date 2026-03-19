@@ -124,15 +124,40 @@ class TestMemorySearchTool:
         assert "Deploy" in result
         assert "record" in result
 
-    async def test_error_returns_string(self):
+    async def test_generic_error_returns_opaque_message(self):
         client = AsyncMock()
         client.search = AsyncMock(side_effect=RuntimeError("network fail"))
 
         tool, _, state = _make_search_tool(client=client)
         result = await tool._arun("test task")
 
+        assert result == "Error: unexpected failure"
+        # Raw exception text must NOT leak to the LLM
+        assert "network fail" not in result
+
+    async def test_api_error_returns_detail(self):
+        import httpx
+
+        from myelin_sdk.errors import MyelinAPIError
+
+        req = httpx.Request("GET", "https://api.myelin.com/search")
+        resp = httpx.Response(
+            401,
+            request=req,
+            json={"error": "Invalid API key"},
+        )
+        client = AsyncMock()
+        client.search = AsyncMock(
+            side_effect=MyelinAPIError(response=resp, request=req)
+        )
+
+        tool, _, _ = _make_search_tool(client=client)
+        result = await tool._arun("test task")
+
         assert "Error:" in result
-        assert "network fail" in result
+        assert "Invalid API key" in result
+        # Should NOT contain the raw httpx representation
+        assert "Bearer" not in result
 
 
 class TestMemoryRecordTool:
@@ -176,15 +201,40 @@ class TestMemoryRecordTool:
         assert state.session_id == "ses_456"
         assert state.active is True
 
-    async def test_error_returns_string(self):
+    async def test_generic_error_returns_opaque_message(self):
         client = AsyncMock()
         client.start = AsyncMock(side_effect=RuntimeError("network fail"))
 
         tool, _, state = _make_record_tool(client=client)
         result = await tool._arun()
 
+        assert result == "Error: unexpected failure"
+        assert "network fail" not in result
+        assert state.session_id is None
+        assert state.active is False
+
+    async def test_api_error_returns_detail(self):
+        import httpx
+
+        from myelin_sdk.errors import MyelinAPIError
+
+        req = httpx.Request("POST", "https://api.myelin.com/start")
+        resp = httpx.Response(
+            429,
+            request=req,
+            headers={"retry-after": "30"},
+            json={"error": "Rate limit exceeded"},
+        )
+        client = AsyncMock()
+        client.start = AsyncMock(
+            side_effect=MyelinAPIError(response=resp, request=req)
+        )
+
+        tool, _, state = _make_record_tool(client=client)
+        result = await tool._arun()
+
         assert "Error:" in result
-        assert "network fail" in result
+        assert "Rate limit" in result
         assert state.session_id is None
         assert state.active is False
 
@@ -258,7 +308,7 @@ class TestMemoryFinishTool:
         assert "already finished" in result.lower()
         client.finish.assert_not_awaited()
 
-    async def test_api_error_returns_string(self):
+    async def test_generic_error_returns_opaque_message(self):
         client = AsyncMock()
         client.finish = AsyncMock(side_effect=RuntimeError("server error"))
 
@@ -269,5 +319,31 @@ class TestMemoryFinishTool:
         tool, _, _ = _make_finish_tool(client=client, state=state)
         result = await tool._arun()
 
+        assert result == "Error: unexpected failure"
+        assert "server error" not in result
+
+    async def test_api_error_returns_detail(self):
+        import httpx
+
+        from myelin_sdk.errors import MyelinAPIError
+
+        req = httpx.Request("POST", "https://api.myelin.com/finish")
+        resp = httpx.Response(
+            404,
+            request=req,
+            json={"error": "Session not found"},
+        )
+        client = AsyncMock()
+        client.finish = AsyncMock(
+            side_effect=MyelinAPIError(response=resp, request=req)
+        )
+
+        state = _make_state()
+        state.session_id = "ses_123"
+        state.active = True
+
+        tool, _, _ = _make_finish_tool(client=client, state=state)
+        result = await tool._arun()
+
         assert "Error:" in result
-        assert "server error" in result
+        assert "Session not found" in result

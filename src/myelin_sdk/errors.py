@@ -45,7 +45,9 @@ class MyelinAPIError(httpx.HTTPStatusError):
             parts.append(hint)
         self.detail = " ".join(parts)
 
-        super().__init__(self.detail, request=request, response=response)
+        # Strip auth headers to prevent API key leaks in tracebacks
+        safe_request = httpx.Request(request.method, request.url)
+        super().__init__(self.detail, request=safe_request, response=response)
 
 
 def raise_for_status(response: httpx.Response) -> None:
