@@ -32,28 +32,28 @@ def _make_handler(client=None, session_id="ses_test", **kwargs):
 
 
 class TestOnLlmEnd:
-    async def test_buffers_reasoning(self):
+    async def test_buffers_context(self):
         handler, _ = _make_handler()
         run_id = uuid4()
         result = FakeLLMResult(["I should read the file first"])
         await handler.on_llm_end(result, run_id=run_id)
-        assert run_id in handler._reasoning
-        assert handler._reasoning[run_id] == "I should read the file first"
+        assert run_id in handler._context
+        assert handler._context[run_id] == "I should read the file first"
 
     async def test_multiple_generations(self):
         handler, _ = _make_handler()
         run_id = uuid4()
         result = FakeLLMResult(["part one", "part two"])
         await handler.on_llm_end(result, run_id=run_id)
-        assert "part one" in handler._reasoning[run_id]
-        assert "part two" in handler._reasoning[run_id]
+        assert "part one" in handler._context[run_id]
+        assert "part two" in handler._context[run_id]
 
     async def test_empty_text_ignored(self):
         handler, _ = _make_handler()
         run_id = uuid4()
         result = FakeLLMResult([""])
         await handler.on_llm_end(result, run_id=run_id)
-        assert run_id not in handler._reasoning
+        assert run_id not in handler._context
 
     async def test_exception_does_not_raise(self):
         handler, _ = _make_handler()
@@ -121,9 +121,9 @@ class TestOnToolEnd:
         assert call_kwargs["tool_name"] == "web_search"
         assert call_kwargs["tool_input"] == {"q": "test"}
         assert call_kwargs["tool_response"] == "result: found it"
-        assert call_kwargs["reasoning"] == "Let me search for that"
+        assert call_kwargs["context"] == "Let me search for that"
 
-    async def test_no_reasoning_when_no_parent(self):
+    async def test_no_context_when_no_parent(self):
         handler, client = _make_handler()
         tool_run_id = uuid4()
         await handler.on_tool_start(
@@ -135,9 +135,9 @@ class TestOnToolEnd:
         await handler.on_tool_end("files", run_id=tool_run_id)
 
         client.capture.assert_awaited_once()
-        assert client.capture.call_args.kwargs["reasoning"] is None
+        assert client.capture.call_args.kwargs["context"] is None
 
-    async def test_reasoning_consumed_once(self):
+    async def test_context_consumed_once(self):
         handler, client = _make_handler()
         llm_run_id = uuid4()
         tool1 = uuid4()
@@ -158,8 +158,8 @@ class TestOnToolEnd:
 
         calls = client.capture.call_args_list
         assert len(calls) == 2
-        assert calls[0].kwargs["reasoning"] == "thinking"
-        assert calls[1].kwargs["reasoning"] is None
+        assert calls[0].kwargs["context"] == "thinking"
+        assert calls[1].kwargs["context"] is None
 
     async def test_unknown_run_id_ignored(self):
         handler, client = _make_handler()
@@ -257,7 +257,7 @@ class TestRedactionIntegration:
             "enabled": True,
             "redact_tool_input": True,
             "redact_tool_response": True,
-            "redact_reasoning": True,
+            "redact_context": True,
         }
         defaults.update(kwargs)
         return RedactionConfig(**defaults)
@@ -294,7 +294,7 @@ class TestRedactionIntegration:
         assert "sk-ant-" not in captured_resp
         assert "[REDACTED]" in captured_resp
 
-    async def test_scrubs_reasoning(self):
+    async def test_scrubs_context(self):
         cfg = self._make_redaction_config()
         handler, client = _make_handler(redaction=cfg)
         llm_id = uuid4()
@@ -308,9 +308,9 @@ class TestRedactionIntegration:
         )
         await handler.on_tool_end("ok", run_id=tool_id)
 
-        reasoning = client.capture.call_args.kwargs["reasoning"]
-        assert "ghp_" not in reasoning
-        assert "[REDACTED]" in reasoning
+        context = client.capture.call_args.kwargs["context"]
+        assert "ghp_" not in context
+        assert "[REDACTED]" in context
 
     async def test_composes_with_hide_inputs(self):
         cfg = self._make_redaction_config()

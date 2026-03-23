@@ -151,14 +151,14 @@ class TestCapture:
         assert resp.status == "ok"
         await client.close()
 
-    async def test_capture_with_reasoning(self):
+    async def test_capture_with_context(self):
         client = _client_with([{"json": {"status": "ok"}}])
         resp = await client.capture(
             session_id="ses_1",
             tool_name="Read",
             tool_input={"path": "/file"},
             tool_response="contents",
-            reasoning="I need to read this file",
+            context="I need to read this file",
             client_ts=1000.0,
         )
         assert resp.status == "ok"
@@ -243,8 +243,8 @@ class TestRedaction:
         assert body["tool_response"] == secret
         await client.close()
 
-    async def test_reasoning_redacted(self):
-        """Reasoning containing secrets is redacted."""
+    async def test_context_redacted(self):
+        """Context containing secrets is redacted."""
         requests_sent = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -263,11 +263,11 @@ class TestRedaction:
             tool_name="Bash",
             tool_input={"command": "ls"},
             tool_response="ok",
-            reasoning="Use key ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn",
+            context="Use key ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn",
         )
         body = requests_sent[0]
-        assert "ghp_" not in body["reasoning"]
-        assert "[REDACTED]" in body["reasoning"]
+        assert "ghp_" not in body["context"]
+        assert "[REDACTED]" in body["context"]
         await client.close()
 
 

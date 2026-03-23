@@ -242,11 +242,18 @@ class TestConfigFromDict:
         cfg = RedactionConfig.from_dict({
             "redact_tool_input": False,
             "redact_tool_response": True,
-            "redact_reasoning": False,
+            "redact_context": False,
         })
         assert cfg.redact_tool_input is False
         assert cfg.redact_tool_response is True
-        assert cfg.redact_reasoning is False
+        assert cfg.redact_context is False
+
+    def test_backward_compat_redact_reasoning(self):
+        """Old config files with redact_reasoning still work."""
+        cfg = RedactionConfig.from_dict({
+            "redact_reasoning": False,
+        })
+        assert cfg.redact_context is False
 
 
 class TestConfigFromFile:
@@ -471,7 +478,7 @@ class TestBuildDefaultRedactionDict:
         d = build_default_redaction_dict()
         for key in (
             "enabled", "replacement", "redact_tool_input",
-            "redact_tool_response", "redact_reasoning",
+            "redact_tool_response", "redact_context",
             "patterns", "sensitive_keys",
         ):
             assert key in d

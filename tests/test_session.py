@@ -61,7 +61,7 @@ class TestCapture:
     async def test_capture_with_optional_args(self, mock_client, start_with_workflow):
         session = MyelinSession(mock_client, start_with_workflow)
         await session.capture(
-            "Read", {"path": "/f"}, "data", reasoning="why", client_ts=100.0
+            "Read", {"path": "/f"}, "data", context="why", client_ts=100.0
         )
         mock_client.capture.assert_awaited_once_with(
             "ses_1", "Read", {"path": "/f"}, "data", "why", 100.0

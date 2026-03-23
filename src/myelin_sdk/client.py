@@ -81,7 +81,7 @@ class MyelinClient:
         tool_name: str,
         tool_input: dict,
         tool_response: str,
-        reasoning: str | None = None,
+        context: str | None = None,
         client_ts: float | None = None,
     ) -> CaptureResponse:
         if self._redaction.enabled:
@@ -91,8 +91,8 @@ class MyelinClient:
                 tool_response = redact_string(
                     str(tool_response), self._redaction
                 )
-            if reasoning and self._redaction.redact_reasoning:
-                reasoning = redact_string(reasoning, self._redaction)
+            if context and self._redaction.redact_context:
+                context = redact_string(context, self._redaction)
 
         payload: dict = {
             "session_id": session_id,
@@ -101,8 +101,8 @@ class MyelinClient:
             "tool_response": tool_response,
             "client_ts": client_ts or time.time(),
         }
-        if reasoning:
-            payload["reasoning"] = reasoning
+        if context:
+            payload["context"] = context
         resp = await self._http.post("/v1/capture", json=payload)
         raise_for_status(resp)
         return CaptureResponse(**resp.json())

@@ -3,6 +3,7 @@
 from urllib.parse import urlparse
 
 MAX_RESPONSE_LEN = 8000
+MAX_CONTEXT_LEN = 100_000
 
 _LOCALHOST_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
 
@@ -30,16 +31,14 @@ def validate_base_url(url: str) -> str:
     raise ValueError(
         f"Invalid base_url scheme: {url!r} — only https:// (or http:// for localhost) is allowed."
     )
-_HEAD = MAX_RESPONSE_LEN // 2
-_TAIL = MAX_RESPONSE_LEN // 2
-
-
-def truncate(text: str) -> str:
+def truncate(text: str, max_len: int = MAX_RESPONSE_LEN) -> str:
     """Keep first and last chars so the evaluator sees both the start and outcome."""
-    if len(text) <= MAX_RESPONSE_LEN:
+    if len(text) <= max_len:
         return text
+    head = max_len // 2
+    tail = max_len // 2
     return (
-        text[:_HEAD]
+        text[:head]
         + f"\n... [{len(text)} chars, middle truncated] ...\n"
-        + text[-_TAIL:]
+        + text[-tail:]
     )

@@ -1,4 +1,4 @@
-"""Tests for reasoning extraction from the JSONL transcript."""
+"""Tests for context extraction from the JSONL transcript."""
 
 import json
 import os
@@ -6,7 +6,10 @@ import tempfile
 
 import pytest
 
-from myelin_sdk.claude_code.capture import extract_reasoning_from_transcript
+from myelin_sdk.claude_code.capture import (
+    MAX_CONTEXT_LEN,
+    extract_context_from_transcript,
+)
 
 
 @pytest.fixture
@@ -26,158 +29,311 @@ def _write_transcript(f, entries: list[dict]) -> str:
     return f.name
 
 
-class TestTranscriptParsing:
-    def test_extracts_thinking_and_text(self, transcript_file):
-        """Extracts both thinking and text blocks from the same message."""
+class TestContextExtraction:
+    def test_basic_extraction(self, transcript_file):
+        """Thinking + text + user messages produce correct tagged output."""
         entries = [
             {
                 "message": {
                     "id": "msg_001",
                     "role": "assistant",
                     "content": [
-                        {"type": "thinking", "thinking": "The user needs a password reset. Let me search first."},
-                        {"type": "text", "text": "I'll search for the user by email."},
-                        {"type": "tool_use", "id": "tu_abc123", "name": "admin_api.search"},
+                        {
+                            "type": "thinking",
+                            "thinking": "The user needs a password reset.",
+                        },
+                        {
+                            "type": "text",
+                            "text": "I'll search for the user by email.",
+                        },
+                        {
+                            "type": "tool_use",
+                            "id": "tu_abc",
+                            "name": "search",
+                        },
                     ],
                 }
-            }
-        ]
-        path = _write_transcript(transcript_file, entries)
-
-        result = extract_reasoning_from_transcript(path, "tu_abc123")
-
-        assert result is not None
-        assert "The user needs a password reset" in result
-        assert "I'll search for the user by email" in result
-        # Thinking comes before text
-        thinking_pos = result.index("password reset")
-        text_pos = result.index("search for the user")
-        assert thinking_pos < text_pos
-
-    def test_thinking_only(self, transcript_file):
-        """Works with only thinking block, no text."""
-        entries = [
+            },
             {
                 "message": {
                     "id": "msg_002",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "thinking", "thinking": "Just thinking here"},
-                        {"type": "tool_use", "id": "tu_think", "name": "some_tool"},
-                    ],
+                    "role": "user",
+                    "content": "Great, thanks for looking.",
                 }
-            }
+            },
         ]
         path = _write_transcript(transcript_file, entries)
 
-        result = extract_reasoning_from_transcript(path, "tu_think")
+        result, new_offset = extract_context_from_transcript(path, 0)
 
-        assert result == "Just thinking here"
+        assert result is not None
+        assert "[thinking] The user needs a password reset." in result
+        assert "[assistant] I'll search for the user by email." in result
+        assert "[user] Great, thanks for looking." in result
+        assert new_offset == 2
 
-    def test_text_only(self, transcript_file):
-        """Works with only text block, no thinking."""
+    def test_offset_skips_pre_session(self, transcript_file):
+        """Lines before offset are not included in context."""
         entries = [
             {
                 "message": {
-                    "id": "msg_003",
+                    "id": "msg_pre",
                     "role": "assistant",
                     "content": [
-                        {"type": "text", "text": "Let me do this."},
-                        {"type": "tool_use", "id": "tu_text", "name": "some_tool"},
-                    ],
-                }
-            }
-        ]
-        path = _write_transcript(transcript_file, entries)
-
-        result = extract_reasoning_from_transcript(path, "tu_text")
-
-        assert result == "Let me do this."
-
-    def test_tool_use_id_not_found(self, transcript_file):
-        """Returns None when tool_use_id doesn't exist in transcript."""
-        entries = [
-            {
-                "message": {
-                    "id": "msg_004",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "tool_use", "id": "tu_other", "name": "some_tool"},
-                    ],
-                }
-            }
-        ]
-        path = _write_transcript(transcript_file, entries)
-
-        result = extract_reasoning_from_transcript(path, "tu_missing")
-
-        assert result is None
-
-    def test_empty_thinking_and_text(self, transcript_file):
-        """Returns None when both thinking and text are empty."""
-        entries = [
-            {
-                "message": {
-                    "id": "msg_005",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "thinking", "thinking": ""},
-                        {"type": "text", "text": "  "},
-                        {"type": "tool_use", "id": "tu_empty", "name": "some_tool"},
-                    ],
-                }
-            }
-        ]
-        path = _write_transcript(transcript_file, entries)
-
-        result = extract_reasoning_from_transcript(path, "tu_empty")
-
-        assert result is None
-
-    def test_nonexistent_file(self):
-        """Returns None for nonexistent transcript file."""
-        result = extract_reasoning_from_transcript("/tmp/nonexistent_transcript.jsonl", "tu_x")
-        assert result is None
-
-    def test_multiple_messages_finds_correct_one(self, transcript_file):
-        """Finds reasoning from the correct message among multiple entries."""
-        entries = [
-            {
-                "message": {
-                    "id": "msg_earlier",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "text", "text": "Earlier reasoning"},
-                        {"type": "tool_use", "id": "tu_earlier", "name": "tool_a"},
+                        {"type": "text", "text": "Before session."},
                     ],
                 }
             },
             {
                 "message": {
-                    "id": "msg_later",
+                    "id": "msg_post",
                     "role": "assistant",
                     "content": [
-                        {"type": "text", "text": "Later reasoning"},
-                        {"type": "tool_use", "id": "tu_later", "name": "tool_b"},
+                        {"type": "text", "text": "After session start."},
                     ],
                 }
             },
         ]
         path = _write_transcript(transcript_file, entries)
 
-        result = extract_reasoning_from_transcript(path, "tu_later")
+        result, new_offset = extract_context_from_transcript(path, 1)
 
-        assert result == "Later reasoning"
+        assert result is not None
+        assert "Before session" not in result
+        assert "[assistant] After session start." in result
+        assert new_offset == 2
 
-    def test_user_messages_ignored(self, transcript_file):
-        """Only parses assistant messages, skips user messages."""
+    def test_tool_use_filtered(self, transcript_file):
+        """tool_use blocks are not included in context output."""
         entries = [
             {
                 "message": {
-                    "id": "msg_user",
+                    "id": "msg_tu",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Searching now."},
+                        {
+                            "type": "tool_use",
+                            "id": "tu_1",
+                            "name": "search",
+                        },
+                    ],
+                }
+            },
+        ]
+        path = _write_transcript(transcript_file, entries)
+
+        result, _ = extract_context_from_transcript(path, 0)
+
+        assert result is not None
+        assert "[assistant] Searching now." in result
+        assert "tool_use" not in result
+        assert "tu_1" not in result
+
+    def test_tool_result_filtered(self, transcript_file):
+        """User messages with tool_result content are skipped entirely."""
+        entries = [
+            {
+                "message": {
+                    "id": "msg_tr",
                     "role": "user",
                     "content": [
-                        {"type": "tool_use", "id": "tu_user", "name": "fake"},
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "tu_1",
+                            "content": "file contents here",
+                        },
+                    ],
+                }
+            },
+            {
+                "message": {
+                    "id": "msg_real",
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Can you fix it?"},
+                    ],
+                }
+            },
+        ]
+        path = _write_transcript(transcript_file, entries)
+
+        result, _ = extract_context_from_transcript(path, 0)
+
+        assert result is not None
+        assert "file contents here" not in result
+        assert "tool_result" not in result
+        assert "[user] Can you fix it?" in result
+
+    def test_user_string_content(self, transcript_file):
+        """User messages with plain string content are captured as [user]."""
+        entries = [
+            {
+                "message": {
+                    "id": "msg_str",
+                    "role": "user",
+                    "content": "Please help me deploy.",
+                }
+            },
+        ]
+        path = _write_transcript(transcript_file, entries)
+
+        result, _ = extract_context_from_transcript(path, 0)
+
+        assert result == "[user] Please help me deploy."
+
+    def test_user_array_text_content(self, transcript_file):
+        """User messages with text block array are captured."""
+        entries = [
+            {
+                "message": {
+                    "id": "msg_arr",
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "First part."},
+                        {"type": "text", "text": "Second part."},
+                    ],
+                }
+            },
+        ]
+        path = _write_transcript(transcript_file, entries)
+
+        result, _ = extract_context_from_transcript(path, 0)
+
+        assert result is not None
+        assert "[user] First part." in result
+        assert "[user] Second part." in result
+
+    def test_progress_skipped(self, transcript_file):
+        """Lines without a message field (e.g. progress entries) are skipped."""
+        entries = [
+            {"type": "progress", "data": "50%"},
+            {
+                "message": {
+                    "id": "msg_real",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Done."},
+                    ],
+                }
+            },
+        ]
+        path = _write_transcript(transcript_file, entries)
+
+        result, _ = extract_context_from_transcript(path, 0)
+
+        assert result == "[assistant] Done."
+
+    def test_file_history_skipped(self, transcript_file):
+        """Lines with type file-history-snapshot (no message) are skipped."""
+        entries = [
+            {"type": "file-history-snapshot", "files": ["/a.py"]},
+            {
+                "message": {
+                    "id": "msg_ok",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "All good."},
+                    ],
+                }
+            },
+        ]
+        path = _write_transcript(transcript_file, entries)
+
+        result, _ = extract_context_from_transcript(path, 0)
+
+        assert result == "[assistant] All good."
+
+    def test_empty_returns_none(self, transcript_file):
+        """Empty transcript returns (None, offset)."""
+        path = _write_transcript(transcript_file, [])
+
+        result, new_offset = extract_context_from_transcript(path, 0)
+
+        assert result is None
+        assert new_offset == 0
+
+    def test_missing_file(self):
+        """Missing transcript path returns (None, offset)."""
+        result, new_offset = extract_context_from_transcript(
+            "/tmp/nonexistent_transcript.jsonl", 5
+        )
+
+        assert result is None
+        assert new_offset == 5
+
+    def test_truncation(self, transcript_file):
+        """Text over MAX_CONTEXT_LEN gets head+tail truncated."""
+        # Create a large message that exceeds MAX_CONTEXT_LEN
+        big_text = "x" * (MAX_CONTEXT_LEN + 10000)
+        entries = [
+            {
+                "message": {
+                    "id": "msg_big",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": big_text},
+                    ],
+                }
+            },
+        ]
+        path = _write_transcript(transcript_file, entries)
+
+        result, _ = extract_context_from_transcript(path, 0)
+
+        assert result is not None
+        assert "middle truncated" in result
+        assert len(result) > MAX_CONTEXT_LEN  # includes truncation marker
+
+    def test_returns_new_offset(self, transcript_file):
+        """Returned offset matches total line count of transcript."""
+        entries = [
+            {
+                "message": {
+                    "id": f"msg_{i}",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": f"Line {i}"},
+                    ],
+                }
+            }
+            for i in range(5)
+        ]
+        path = _write_transcript(transcript_file, entries)
+
+        _, new_offset = extract_context_from_transcript(path, 0)
+
+        assert new_offset == 5
+
+    def test_offset_at_end_returns_none(self, transcript_file):
+        """When offset >= line count, returns (None, new_offset)."""
+        entries = [
+            {
+                "message": {
+                    "id": "msg_1",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Hello"},
+                    ],
+                }
+            },
+        ]
+        path = _write_transcript(transcript_file, entries)
+
+        result, new_offset = extract_context_from_transcript(path, 1)
+
+        assert result is None
+        assert new_offset == 1
+
+    def test_system_role_skipped(self, transcript_file):
+        """Messages with role 'system' are not included."""
+        entries = [
+            {
+                "message": {
+                    "id": "msg_sys",
+                    "role": "system",
+                    "content": [
+                        {"type": "text", "text": "System prompt"},
                     ],
                 }
             },
@@ -186,106 +342,14 @@ class TestTranscriptParsing:
                     "id": "msg_asst",
                     "role": "assistant",
                     "content": [
-                        {"type": "text", "text": "Real reasoning"},
-                        {"type": "tool_use", "id": "tu_real", "name": "real_tool"},
+                        {"type": "text", "text": "Hello!"},
                     ],
                 }
             },
         ]
         path = _write_transcript(transcript_file, entries)
 
-        assert extract_reasoning_from_transcript(path, "tu_user") is None
-        assert extract_reasoning_from_transcript(path, "tu_real") == "Real reasoning"
+        result, _ = extract_context_from_transcript(path, 0)
 
-    def test_split_entries_same_message_id(self, transcript_file):
-        """Claude Code splits one message across multiple JSONL entries.
-
-        Thinking, text, and tool_use are separate lines sharing the same
-        message.id. The parser must collect from all of them.
-        """
-        entries = [
-            {
-                "message": {
-                    "id": "msg_split",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "thinking", "thinking": "Let me think about this carefully."},
-                    ],
-                }
-            },
-            {
-                "message": {
-                    "id": "msg_split",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "text", "text": "I'll search for the user now."},
-                    ],
-                }
-            },
-            {
-                "message": {
-                    "id": "msg_split",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "tool_use", "id": "tu_split", "name": "admin_api.search"},
-                    ],
-                }
-            },
-        ]
-        path = _write_transcript(transcript_file, entries)
-
-        result = extract_reasoning_from_transcript(path, "tu_split")
-
-        assert result is not None
-        assert "Let me think about this carefully" in result
-        assert "I'll search for the user now" in result
-
-    def test_split_entries_preserves_order(self, transcript_file):
-        """Thinking from earlier entries comes before text from later entries."""
-        entries = [
-            {
-                "message": {
-                    "id": "msg_order",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "text", "text": "First text block."},
-                    ],
-                }
-            },
-            {
-                "message": {
-                    "id": "msg_order",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "thinking", "thinking": "Deep reasoning here."},
-                    ],
-                }
-            },
-            {
-                "message": {
-                    "id": "msg_order",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "text", "text": "Second text block."},
-                    ],
-                }
-            },
-            {
-                "message": {
-                    "id": "msg_order",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "tool_use", "id": "tu_order", "name": "some_tool"},
-                    ],
-                }
-            },
-        ]
-        path = _write_transcript(transcript_file, entries)
-
-        result = extract_reasoning_from_transcript(path, "tu_order")
-
-        assert result is not None
-        # Thinking comes before text in output
-        assert result.startswith("Deep reasoning here.")
-        assert "First text block." in result
-        assert "Second text block." in result
+        assert result == "[assistant] Hello!"
+        assert "System prompt" not in result

@@ -74,13 +74,13 @@ class MyelinSession:
         tool_name: str,
         tool_input: dict,
         tool_response: str,
-        reasoning: str | None = None,
+        context: str | None = None,
         client_ts: float | None = None,
     ) -> CaptureResponse:
         if not self._active:
             raise RuntimeError("Session already finished")
         return await self._client.capture(
-            self.session_id, tool_name, tool_input, tool_response, reasoning, client_ts
+            self.session_id, tool_name, tool_input, tool_response, context, client_ts
         )
 
     async def feedback(self, notes: str) -> FeedbackResponse:

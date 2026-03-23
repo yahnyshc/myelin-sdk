@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Myelin PostToolUse / PostToolUseFailure hook — captures tool calls to Myelin.
 
-Reads JSON from stdin provided by Claude Code. Extracts agent reasoning from the
-JSONL transcript and sends it alongside the tool call. For failures, the error
-message is always captured (even for investigation tools whose output is normally
-stripped).
+Reads JSON from stdin provided by Claude Code. Extracts conversation context
+(thinking, assistant text, user messages) from the JSONL transcript using offset
+tracking and sends it alongside the tool call. For failures, the error message is
+always captured (even for investigation tools whose output is normally stripped).
 """
 
 import json
@@ -15,7 +15,7 @@ import time
 import urllib.error
 import urllib.request
 
-from myelin_sdk._utils import truncate, validate_base_url
+from myelin_sdk._utils import MAX_CONTEXT_LEN, truncate, validate_base_url
 from myelin_sdk.redact import RedactionConfig, redact_dict, redact_string
 
 # -- Hook constants -----------------------------------------------------------
@@ -70,23 +70,94 @@ def _clear_all_session_files(sessions_dir: str) -> None:
         pass
 
 
-def extract_reasoning_from_transcript(transcript_path: str, tool_use_id: str) -> str | None:
-    """Parse JSONL transcript to find reasoning for a tool_use_id.
+# -- Session file helpers (two-line format: session_id\noffset) ---------------
 
-    Looks for the assistant message containing the tool_use block with the given id,
-    then collects all thinking and text blocks from that same message.
+
+def _read_session_file(path: str) -> tuple[str, int] | None:
+    """Read session file. Returns (session_id, transcript_offset) or None."""
+    try:
+        with open(path) as f:
+            lines = f.read().strip().split("\n")
+            sid = lines[0].strip()
+            offset = int(lines[1].strip()) if len(lines) > 1 else 0
+            return sid, offset
+    except (FileNotFoundError, ValueError, IndexError):
+        return None
+
+
+def _write_session_file(path: str, sid: str, offset: int) -> None:
+    """Write session file with session_id and transcript offset."""
+    try:
+        with open(path, "w") as f:
+            f.write(f"{sid}\n{offset}")
+    except OSError:
+        pass
+
+
+# -- HTTP helper --------------------------------------------------------------
+
+
+def _post_capture(
+    url: str, key: str, payload: dict, retries: int = 0
+) -> bool:
+    """POST a capture payload to the server. Returns True on success."""
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        f"{url}/v1/capture",
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}",
+        },
+        method="POST",
+    )
+
+    for attempt in range(retries + 1):
+        try:
+            urllib.request.urlopen(req, timeout=CAPTURE_TIMEOUT)
+            return True
+        except (urllib.error.URLError, OSError) as exc:
+            if attempt < retries:
+                debug(
+                    f"capture attempt {attempt + 1} failed: {exc}, retrying"
+                )
+                time.sleep(RETRY_DELAY)
+            else:
+                if retries > 0:
+                    log(f"capture failed after {attempt + 1} attempts: {exc}")
+                else:
+                    debug(f"capture failed: {exc}")
+    return False
+
+
+# -- Transcript context extraction --------------------------------------------
+
+
+def extract_context_from_transcript(
+    transcript_path: str,
+    offset: int,
+) -> tuple[str | None, int]:
+    """Extract conversation context from transcript starting at offset.
+
+    Collects assistant thinking, text, and user messages.
+    Skips tool_use, tool_result, progress, and file-history-snapshot entries.
+
+    Returns (context_text, new_offset). context_text is None if no content found.
     """
-    lines: list[str] = []
     try:
         with open(transcript_path, "r") as f:
             all_lines = f.readlines()
-            lines = all_lines[-100:]
     except (OSError, IOError):
-        return None
+        return None, offset
 
-    # Find the message containing our tool_use_id
-    target_message_id = None
-    for line in reversed(lines):
+    new_offset = len(all_lines)
+    if offset >= new_offset:
+        return None, new_offset
+
+    session_lines = all_lines[offset:]
+    parts: list[str] = []
+
+    for line in session_lines:
         line = line.strip()
         if not line:
             continue
@@ -96,44 +167,38 @@ def extract_reasoning_from_transcript(transcript_path: str, tool_use_id: str) ->
             continue
 
         message = entry.get("message")
-        if not message or message.get("role") != "assistant":
+        if not message:
+            continue
+
+        role = message.get("role")
+        if role not in ("assistant", "user"):
             continue
 
         content = message.get("content", [])
-        if not isinstance(content, list):
+
+        # User messages: content can be a plain string or array of blocks
+        if role == "user":
+            if isinstance(content, str):
+                text = content.strip()
+                if text:
+                    parts.append(f"[user] {text}")
+                continue
+            if isinstance(content, list):
+                # Skip tool_result messages
+                has_tool_result = any(
+                    isinstance(b, dict) and b.get("type") == "tool_result"
+                    for b in content
+                )
+                if has_tool_result:
+                    continue
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text = block.get("text", "").strip()
+                        if text:
+                            parts.append(f"[user] {text}")
             continue
 
-        for block in content:
-            if isinstance(block, dict) and block.get("id") == tool_use_id:
-                target_message_id = message.get("id")
-                break
-
-        if target_message_id:
-            break
-
-    if not target_message_id:
-        debug(f"no transcript entry found for tool_use_id={tool_use_id}")
-        return None
-
-    # Collect thinking and text blocks from ALL entries with that message id.
-    # Claude Code splits one assistant message across multiple JSONL lines.
-    thinking_parts: list[str] = []
-    text_parts: list[str] = []
-
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        message = entry.get("message")
-        if not message or message.get("id") != target_message_id:
-            continue
-
-        content = message.get("content", [])
+        # Assistant messages: content is always an array
         if not isinstance(content, list):
             continue
 
@@ -142,27 +207,22 @@ def extract_reasoning_from_transcript(transcript_path: str, tool_use_id: str) ->
                 continue
             block_type = block.get("type")
             if block_type == "thinking":
-                thinking_text = block.get("thinking", "").strip()
-                if thinking_text:
-                    thinking_parts.append(thinking_text)
+                text = block.get("thinking", "").strip()
+                if text:
+                    parts.append(f"[thinking] {text}")
             elif block_type == "text":
-                text_text = block.get("text", "").strip()
-                if text_text:
-                    text_parts.append(text_text)
+                text = block.get("text", "").strip()
+                if text:
+                    parts.append(f"[assistant] {text}")
+            # Skip tool_use — already captured via PostToolUse
 
-    if not thinking_parts and not text_parts:
-        debug(f"no reasoning content for message_id={target_message_id}")
-        return None
+    if not parts:
+        return None, new_offset
 
-    parts = []
-    if thinking_parts:
-        parts.extend(thinking_parts)
-    if text_parts:
-        if parts:
-            parts.append("")  # blank line separator
-        parts.extend(text_parts)
+    return truncate("\n".join(parts), MAX_CONTEXT_LEN), new_offset
 
-    return "\n".join(parts)
+
+# -- Session ID extraction ----------------------------------------------------
 
 
 def _extract_from_text(text: str):
@@ -252,6 +312,9 @@ def extract_session_id(tool_response):
     return data.get("session_id")
 
 
+# -- Environment loading ------------------------------------------------------
+
+
 def _load_env() -> None:
     """Derive MYELIN_URL and MYELIN_API_KEY from .mcp.json if not already set."""
     global _ENV_LOADED
@@ -308,6 +371,9 @@ def _load_redaction_config() -> RedactionConfig | None:
         return None
 
 
+# -- Main hook entry point ----------------------------------------------------
+
+
 def main() -> int:
     try:
         data = json.loads(sys.stdin.read())
@@ -351,13 +417,54 @@ def main() -> int:
             os.makedirs(sessions_dir, exist_ok=True)
             # Clear all existing session files — only one active session at a time
             _clear_all_session_files(sessions_dir)
-            with open(session_file, "w") as f:
-                f.write(sid)
+
+            # Store transcript position at record time
+            transcript_offset = 0
+            transcript_path = data.get("transcript_path") or ""
+            if transcript_path:
+                try:
+                    with open(transcript_path, "r") as tf:
+                        transcript_offset = sum(1 for _ in tf)
+                except (OSError, IOError):
+                    pass
+
+            _write_session_file(session_file, sid, transcript_offset)
             debug(f"session started: {sid}")
         return 0
 
-    # 2. finish — clean up
+    # 2. finish — capture trailing context, then clean up
     if tool_name == FINISH:
+        session_data = _read_session_file(session_file) if session_file else None
+
+        if session_data and myelin_url and myelin_key:
+            myelin_sid, transcript_offset = session_data
+            context = None
+            transcript_path = data.get("transcript_path") or ""
+            if transcript_path:
+                context, _ = extract_context_from_transcript(
+                    transcript_path, transcript_offset
+                )
+                if context:
+                    debug(f"extracted trailing context ({len(context)} chars)")
+                    if (
+                        redaction_cfg
+                        and redaction_cfg.enabled
+                        and redaction_cfg.redact_context
+                    ):
+                        context = redact_string(context, redaction_cfg)
+
+            if context:
+                _post_capture(myelin_url, myelin_key, {
+                    "session_id": myelin_sid,
+                    "tool_name": "finish",
+                    "tool_input": {},
+                    "tool_response": "",
+                    "context": context,
+                    "client_ts": time.time(),
+                })
+                debug("captured trailing context with finish")
+
+        # Clean up session file
         if session_file:
             try:
                 os.remove(session_file)
@@ -393,11 +500,10 @@ def main() -> int:
     # 5. No active session — nothing to do
     if not session_file:
         return 0
-    try:
-        with open(session_file) as f:
-            myelin_sid = f.read().strip()
-    except FileNotFoundError:
+    session_data = _read_session_file(session_file)
+    if not session_data:
         return 0
+    myelin_sid, transcript_offset = session_data
 
     # 6. Capture the tool call
     if not myelin_url or not myelin_key:
@@ -428,17 +534,23 @@ def main() -> int:
 
     tool_response = truncate(tool_response)
 
-    # Extract reasoning directly from the transcript
-    reasoning = None
-    tool_use_id = data.get("tool_use_id") or ""
+    context = None
+    new_offset = transcript_offset
     transcript_path = data.get("transcript_path") or ""
-    if tool_use_id and transcript_path:
-        reasoning = extract_reasoning_from_transcript(transcript_path, tool_use_id)
-        if reasoning:
-            debug(f"extracted reasoning ({len(reasoning)} chars) for {tool_use_id}")
+    if transcript_path:
+        context, new_offset = extract_context_from_transcript(
+            transcript_path, transcript_offset
+        )
+        if context:
+            debug(f"extracted context ({len(context)} chars)")
 
-    if reasoning and redaction_cfg and redaction_cfg.enabled and redaction_cfg.redact_reasoning:
-        reasoning = redact_string(reasoning, redaction_cfg)
+    if (
+        context
+        and redaction_cfg
+        and redaction_cfg.enabled
+        and redaction_cfg.redact_context
+    ):
+        context = redact_string(context, redaction_cfg)
 
     capture_payload: dict = {
         "session_id": myelin_sid,
@@ -447,34 +559,16 @@ def main() -> int:
         "tool_response": tool_response,
         "client_ts": time.time(),
     }
-    if reasoning:
-        capture_payload["reasoning"] = reasoning
+    if context:
+        capture_payload["context"] = context
     if is_error:
         capture_payload["is_error"] = True
 
-    payload = json.dumps(capture_payload).encode()
-
-    req = urllib.request.Request(
-        f"{myelin_url}/v1/capture",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {myelin_key}",
-        },
-        method="POST",
-    )
-
-    for attempt in range(CAPTURE_RETRIES + 1):
-        try:
-            urllib.request.urlopen(req, timeout=CAPTURE_TIMEOUT)
-            debug(f"captured {tool_name}")
-            break
-        except (urllib.error.URLError, OSError) as exc:
-            if attempt < CAPTURE_RETRIES:
-                debug(f"capture attempt {attempt + 1} failed for {tool_name}: {exc}, retrying")
-                time.sleep(RETRY_DELAY)
-            else:
-                log(f"capture failed for {tool_name} after {attempt + 1} attempts: {exc}")
+    if _post_capture(myelin_url, myelin_key, capture_payload, CAPTURE_RETRIES):
+        debug(f"captured {tool_name}")
+        # Update offset only if it changed
+        if new_offset != transcript_offset and session_file:
+            _write_session_file(session_file, myelin_sid, new_offset)
 
     return 0
 

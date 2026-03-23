@@ -104,6 +104,19 @@ class TestMissingFields:
         assert result.returncode == 0
 
 
+def _read_session_id(sf: Path) -> str:
+    """Read the session_id (first line) from a session file."""
+    return sf.read_text().strip().split("\n")[0].strip()
+
+
+def _read_session_offset(sf: Path) -> int:
+    """Read the transcript offset (second line) from a session file."""
+    lines = sf.read_text().strip().split("\n")
+    if len(lines) > 1:
+        return int(lines[1].strip())
+    return 0
+
+
 class TestStart:
     def test_creates_session_file(self, cc_session_id, project_dir):
         result = run_hook({
@@ -114,7 +127,8 @@ class TestStart:
         assert result.returncode == 0
         sf = session_file(project_dir, cc_session_id)
         assert sf.exists()
-        assert sf.read_text() == "ses_abc123"
+        assert _read_session_id(sf) == "ses_abc123"
+        assert _read_session_offset(sf) == 0
 
     def test_nested_result_string(self, cc_session_id, project_dir):
         """Handle {result: '{"session_id": "..."}'}."""
@@ -124,7 +138,7 @@ class TestStart:
             "tool_response": {"result": json.dumps({"session_id": "ses_nested"})},
         }, project_dir)
         assert result.returncode == 0
-        assert session_file(project_dir, cc_session_id).read_text() == "ses_nested"
+        assert _read_session_id(session_file(project_dir, cc_session_id)) == "ses_nested"
 
     def test_nested_result_object(self, cc_session_id, project_dir):
         """Handle {result: {session_id: "..."}}."""
@@ -134,7 +148,7 @@ class TestStart:
             "tool_response": {"result": {"session_id": "ses_obj"}},
         }, project_dir)
         assert result.returncode == 0
-        assert session_file(project_dir, cc_session_id).read_text() == "ses_obj"
+        assert _read_session_id(session_file(project_dir, cc_session_id)) == "ses_obj"
 
     def test_string_response(self, cc_session_id, project_dir):
         """Handle tool_response as a raw JSON string."""
@@ -144,7 +158,7 @@ class TestStart:
             "tool_response": json.dumps({"session_id": "ses_str"}),
         }, project_dir)
         assert result.returncode == 0
-        assert session_file(project_dir, cc_session_id).read_text() == "ses_str"
+        assert _read_session_id(session_file(project_dir, cc_session_id)) == "ses_str"
 
     def test_plain_text_session_started(self, cc_session_id, project_dir):
         """Handle plain-text MCP response: 'Session started: ses_...'."""
@@ -158,7 +172,7 @@ class TestStart:
             ),
         }, project_dir)
         assert result.returncode == 0
-        assert session_file(project_dir, cc_session_id).read_text() == "ses_plain"
+        assert _read_session_id(session_file(project_dir, cc_session_id)) == "ses_plain"
 
     def test_content_block_session_started(self, cc_session_id, project_dir):
         """Handle MCP content blocks wrapping plain-text response."""
@@ -171,7 +185,7 @@ class TestStart:
             )}],
         }, project_dir)
         assert result.returncode == 0
-        assert session_file(project_dir, cc_session_id).read_text() == "ses_cb"
+        assert _read_session_id(session_file(project_dir, cc_session_id)) == "ses_cb"
 
     def test_missing_env_vars(self, cc_session_id, project_dir):
         result = run_hook(
@@ -234,14 +248,14 @@ class TestStart:
         # New session file should exist
         sf = session_file(project_dir, cc_session_id)
         assert sf.exists()
-        assert sf.read_text() == "ses_new"
+        assert _read_session_id(sf) == "ses_new"
 
 
 class TestFinish:
     def test_deletes_session_file(self, cc_session_id, project_dir):
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_todelete")
+        sf.write_text("ses_todelete\n0")
 
         result = run_hook({
             "tool_name": "mcp__myelin__finish",
@@ -256,6 +270,83 @@ class TestFinish:
             "session_id": cc_session_id,
         }, project_dir)
         assert result.returncode == 0
+
+    def test_captures_trailing_context(
+        self, cc_session_id, project_dir, capture_server
+    ):
+        """Finish extracts trailing context from transcript and sends a capture."""
+        # Create transcript with trailing assistant text after offset
+        transcript = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False
+        )
+        # Line 0: pre-session content
+        transcript.write(json.dumps({
+            "message": {
+                "id": "msg_pre",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Before session."}],
+            }
+        }) + "\n")
+        # Line 1: trailing context that should be captured
+        transcript.write(json.dumps({
+            "message": {
+                "id": "msg_trail",
+                "role": "assistant",
+                "content": [
+                    {"type": "thinking", "thinking": "Final analysis."},
+                    {"type": "text", "text": "Task completed successfully."},
+                ],
+            }
+        }) + "\n")
+        transcript.flush()
+
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        # Offset 1 = skip the pre-session line
+        sf.write_text("ses_finish_ctx\n1")
+
+        try:
+            result = run_hook(
+                {
+                    "tool_name": "mcp__myelin__finish",
+                    "session_id": cc_session_id,
+                    "transcript_path": transcript.name,
+                },
+                project_dir,
+                env=_capture_env(capture_server),
+            )
+            assert result.returncode == 0
+            assert not sf.exists()  # session file cleaned up
+            assert len(CaptureHandler.captured) == 1
+            body = CaptureHandler.captured[0]
+            assert body["session_id"] == "ses_finish_ctx"
+            assert body["tool_name"] == "finish"
+            assert "context" in body
+            assert "Final analysis" in body["context"]
+            assert "Task completed successfully" in body["context"]
+            assert "Before session" not in body["context"]
+        finally:
+            os.unlink(transcript.name)
+
+    def test_finish_no_trailing_context_no_capture(
+        self, cc_session_id, project_dir, capture_server
+    ):
+        """When there is no trailing context, finish does not send a capture."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_notrail\n0")
+
+        result = run_hook(
+            {
+                "tool_name": "mcp__myelin__finish",
+                "session_id": cc_session_id,
+            },
+            project_dir,
+            env=_capture_env(capture_server),
+        )
+        assert result.returncode == 0
+        assert not sf.exists()
+        assert len(CaptureHandler.captured) == 0
 
 
 class TestSkipMyelinTools:
@@ -317,7 +408,7 @@ class TestCapture:
     def test_posts_to_server(self, cc_session_id, project_dir, capture_server):
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_capture")
+        sf.write_text("ses_capture\n0")
 
         result = run_hook({
             "tool_name": "Bash",
@@ -338,7 +429,7 @@ class TestCapture:
     def test_truncates_long_response(self, cc_session_id, project_dir, capture_server):
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_trunc")
+        sf.write_text("ses_trunc\n0")
 
         long_response = "x" * 20000
         result = run_hook({
@@ -354,11 +445,10 @@ class TestCapture:
         assert resp.endswith("x" * 4000)
         assert "20000 chars" in resp
 
-    def test_captures_reasoning_from_transcript(self, cc_session_id, project_dir, capture_server):
-        """Reasoning is extracted from the transcript and sent in the payload."""
+    def test_captures_context_from_transcript(self, cc_session_id, project_dir, capture_server):
+        """Context is extracted from the transcript and sent in the payload."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_reasoning")
 
         transcript = tempfile.NamedTemporaryFile(
             mode="w", suffix=".jsonl", delete=False
@@ -370,17 +460,19 @@ class TestCapture:
                 "content": [
                     {"type": "thinking", "thinking": "I need to check the config."},
                     {"type": "text", "text": "Let me read the config file."},
-                    {"type": "tool_use", "id": "toolu_reasoning1", "name": "Read"},
+                    {"type": "tool_use", "id": "toolu_ctx1", "name": "Read"},
                 ],
             }
         }) + "\n")
         transcript.flush()
 
+        # Session file offset=0 so all transcript lines are in scope
+        sf.write_text("ses_context\n0")
+
         try:
             result = run_hook({
                 "tool_name": "Write",
                 "session_id": cc_session_id,
-                "tool_use_id": "toolu_reasoning1",
                 "transcript_path": transcript.name,
                 "tool_input": {"path": "/etc/config"},
                 "tool_response": "key=value",
@@ -388,34 +480,87 @@ class TestCapture:
             assert result.returncode == 0
             assert len(CaptureHandler.captured) == 1
             body = CaptureHandler.captured[0]
-            assert "reasoning" in body
-            assert "I need to check the config" in body["reasoning"]
-            assert "Let me read the config file" in body["reasoning"]
+            assert "context" in body
+            assert "I need to check the config" in body["context"]
+            assert "Let me read the config file" in body["context"]
         finally:
             os.unlink(transcript.name)
 
-    def test_no_reasoning_without_transcript(self, cc_session_id, project_dir, capture_server):
-        """No reasoning field when transcript_path is missing."""
+    def test_no_context_without_transcript(self, cc_session_id, project_dir, capture_server):
+        """No context field when transcript_path is missing."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_noreason")
+        sf.write_text("ses_noctx\n0")
 
         result = run_hook({
             "tool_name": "Bash",
             "session_id": cc_session_id,
-            "tool_use_id": "toolu_noreason",
             "tool_input": {"command": "ls"},
             "tool_response": "file1",
         }, project_dir, env=_capture_env(capture_server))
         assert result.returncode == 0
         assert len(CaptureHandler.captured) == 1
-        assert "reasoning" not in CaptureHandler.captured[0]
+        assert "context" not in CaptureHandler.captured[0]
+
+    def test_offset_updated_after_capture(self, cc_session_id, project_dir, capture_server):
+        """Session file offset is updated after successful capture."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+
+        transcript = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".jsonl", delete=False
+        )
+        # Write 3 lines
+        for i in range(3):
+            transcript.write(json.dumps({
+                "message": {
+                    "id": f"msg_{i}",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": f"Line {i}"},
+                    ],
+                }
+            }) + "\n")
+        transcript.flush()
+
+        sf.write_text("ses_offset\n0")
+
+        try:
+            result = run_hook({
+                "tool_name": "Bash",
+                "session_id": cc_session_id,
+                "transcript_path": transcript.name,
+                "tool_input": {"command": "ls"},
+                "tool_response": "ok",
+            }, project_dir, env=_capture_env(capture_server))
+            assert result.returncode == 0
+            assert _read_session_offset(sf) == 3
+        finally:
+            os.unlink(transcript.name)
+
+    def test_backward_compat_one_line_session_file(
+        self, cc_session_id, project_dir, capture_server
+    ):
+        """One-line session file (old format) defaults offset to 0."""
+        sf = session_file(project_dir, cc_session_id)
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text("ses_compat")  # no offset line
+
+        result = run_hook({
+            "tool_name": "Bash",
+            "session_id": cc_session_id,
+            "tool_input": {"command": "ls"},
+            "tool_response": "ok",
+        }, project_dir, env=_capture_env(capture_server))
+        assert result.returncode == 0
+        assert len(CaptureHandler.captured) == 1
+        assert CaptureHandler.captured[0]["session_id"] == "ses_compat"
 
     def test_http_error_exits_zero(self, cc_session_id, project_dir):
         """Network failure (no server) should not block the agent."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_fail")
+        sf.write_text("ses_fail\n0")
 
         result = run_hook(
             {
@@ -438,7 +583,7 @@ class TestInvestigationTools:
         """Read tool is captured but tool_response is stripped."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_inv1")
+        sf.write_text("ses_inv1\n0")
 
         result = run_hook({
             "tool_name": "Read",
@@ -458,7 +603,7 @@ class TestInvestigationTools:
         """Glob tool is captured but tool_response is stripped."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_inv2")
+        sf.write_text("ses_inv2\n0")
 
         result = run_hook({
             "tool_name": "Glob",
@@ -477,7 +622,7 @@ class TestInvestigationTools:
         """Grep tool is captured but tool_response is stripped."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_inv3")
+        sf.write_text("ses_inv3\n0")
 
         result = run_hook({
             "tool_name": "Grep",
@@ -496,7 +641,7 @@ class TestInvestigationTools:
         """Non-investigation tools (Bash) still capture full response."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_inv4")
+        sf.write_text("ses_inv4\n0")
 
         result = run_hook({
             "tool_name": "Bash",
@@ -509,13 +654,13 @@ class TestInvestigationTools:
         body = CaptureHandler.captured[0]
         assert body["tool_response"] == "hello"
 
-    def test_investigation_tool_reasoning_still_captured(
+    def test_investigation_tool_context_still_captured(
         self, cc_session_id, project_dir, capture_server
     ):
-        """Reasoning is still captured for investigation tools."""
+        """Context is still captured for investigation tools."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_inv5")
+        sf.write_text("ses_inv5\n0")
 
         transcript = tempfile.NamedTemporaryFile(
             mode="w", suffix=".jsonl", delete=False
@@ -536,7 +681,6 @@ class TestInvestigationTools:
             result = run_hook({
                 "tool_name": "Read",
                 "session_id": cc_session_id,
-                "tool_use_id": "toolu_inv1",
                 "transcript_path": transcript.name,
                 "tool_input": {"file_path": "/etc/config"},
                 "tool_response": "key=value\nsecret=hidden",
@@ -545,8 +689,8 @@ class TestInvestigationTools:
             assert len(CaptureHandler.captured) == 1
             body = CaptureHandler.captured[0]
             assert body["tool_response"] == ""
-            assert "reasoning" in body
-            assert "I need to check the config" in body["reasoning"]
+            assert "context" in body
+            assert "I need to check the config" in body["context"]
         finally:
             os.unlink(transcript.name)
 
@@ -558,7 +702,7 @@ class TestToolFailure:
         """Failure payload includes is_error=True and the error message."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_fail1")
+        sf.write_text("ses_fail1\n0")
 
         result = run_hook({
             "tool_name": "Bash",
@@ -579,7 +723,7 @@ class TestToolFailure:
         """Read/Glob/Grep failures capture the error (not stripped like success)."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_fail2")
+        sf.write_text("ses_fail2\n0")
 
         result = run_hook({
             "tool_name": "Read",
@@ -598,7 +742,7 @@ class TestToolFailure:
         """Normal success payloads should not have is_error field."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_fail3")
+        sf.write_text("ses_fail3\n0")
 
         result = run_hook({
             "tool_name": "Bash",
@@ -624,7 +768,7 @@ class TestToolFailure:
         """Finish failure still removes session file."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_cleanup")
+        sf.write_text("ses_cleanup\n0")
 
         result = run_hook({
             "tool_name": "mcp__myelin__finish",
@@ -638,7 +782,7 @@ class TestToolFailure:
         """Failures for skipped tools (TaskCreate etc.) are still skipped."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_skip")
+        sf.write_text("ses_skip\n0")
 
         result = run_hook({
             "tool_name": "TaskCreate",
@@ -671,7 +815,7 @@ class TestRedaction:
         """API key in tool_input is redacted when redaction.json is present."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_redact1")
+        sf.write_text("ses_redact1\n0")
 
         result = run_hook(
             {
@@ -692,7 +836,7 @@ class TestRedaction:
         """Bearer token in tool_response is redacted."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_redact2")
+        sf.write_text("ses_redact2\n0")
 
         result = run_hook(
             {
@@ -713,7 +857,7 @@ class TestRedaction:
         """MYELIN_REDACT=0 disables redaction."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_redact3")
+        sf.write_text("ses_redact3\n0")
 
         secret = "sk-ant-api03-realsecretkeythatshouldbe"
         result = run_hook(
@@ -736,7 +880,7 @@ class TestRedaction:
         """Without redaction.json, built-in defaults still redact secrets."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
-        sf.write_text("ses_redact4")
+        sf.write_text("ses_redact4\n0")
 
         secret = "sk-ant-api03-realsecretkeythatshouldbe"
         result = run_hook({
@@ -790,7 +934,7 @@ class TestPathTraversal:
         sessions_dir = Path(project_dir) / ".claude" / ".myelin-sessions"
         assert sf.parent == sessions_dir
         if sf.exists():
-            assert sf.read_text() == "ses_safe"
+            assert _read_session_id(sf) == "ses_safe"
 
     def test_normal_id_unchanged(self, project_dir):
         """Normal alphanumeric IDs should pass through unchanged."""
@@ -835,7 +979,7 @@ class TestMcpJsonLoading:
             assert result.returncode == 0
             sf = session_file(tmpdir, "test_mcp_load")
             assert sf.exists()
-            assert sf.read_text() == "ses_mcp"
+            assert _read_session_id(sf) == "ses_mcp"
 
     def test_env_vars_take_precedence(self):
         """Explicit env vars are used even when .mcp.json exists."""
@@ -987,4 +1131,4 @@ class TestSessionCleanup:
         # Both old files should be removed (clear_all runs before cleanup)
         assert not stale_file.exists(), "stale file should be removed"
         assert not recent_file.exists(), "existing session file should be cleared on start"
-        assert session_file(project_dir, cc_session_id).read_text() == "ses_new"
+        assert _read_session_id(session_file(project_dir, cc_session_id)) == "ses_new"

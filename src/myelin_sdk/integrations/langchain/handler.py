@@ -47,7 +47,7 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
         self._client = client
         self._session_id = session_id
         self._state = state
-        self._reasoning: dict[UUID, str] = {}
+        self._context: dict[UUID, str] = {}
         self._pending_tools: dict[UUID, dict] = {}
         self._redaction = redaction
 
@@ -91,10 +91,10 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
                     if gen.text:
                         parts.append(gen.text)
             if parts:
-                self._reasoning[run_id] = "\n".join(parts)
+                self._context[run_id] = "\n".join(parts)
         except Exception:
             logger.debug(
-                "Failed to extract reasoning from LLM response", exc_info=True
+                "Failed to extract context from LLM response", exc_info=True
             )
 
     async def on_tool_start(
@@ -151,18 +151,18 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
         if self._hide_outputs:
             tool_response = self._hide_outputs(tool_response)
 
-        reasoning = None
+        context = None
         parent_id = pending.get("parent_run_id")
         if parent_id:
-            reasoning = self._reasoning.pop(parent_id, None)
+            context = self._context.pop(parent_id, None)
 
         if (
-            reasoning
+            context
             and self._redaction
             and self._redaction.enabled
-            and self._redaction.redact_reasoning
+            and self._redaction.redact_context
         ):
-            reasoning = redact_string(reasoning, self._redaction)
+            context = redact_string(context, self._redaction)
 
         try:
             await self._client.capture(
@@ -170,7 +170,7 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
                 tool_name=pending["name"],
                 tool_input=tool_input,
                 tool_response=tool_response,
-                reasoning=reasoning,
+                context=context,
                 client_ts=time.time(),
             )
         except Exception:

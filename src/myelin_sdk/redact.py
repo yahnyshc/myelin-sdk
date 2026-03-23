@@ -199,13 +199,13 @@ class RedactionConfig:
         replacement: str = "[REDACTED]",
         redact_tool_input: bool = True,
         redact_tool_response: bool = True,
-        redact_reasoning: bool = True,
+        redact_context: bool = True,
     ):
         self.enabled = enabled
         self.replacement = replacement
         self.redact_tool_input = redact_tool_input
         self.redact_tool_response = redact_tool_response
-        self.redact_reasoning = redact_reasoning
+        self.redact_context = redact_context
 
         # Build sensitive keys set
         if sensitive_keys is not None:
@@ -238,7 +238,9 @@ class RedactionConfig:
             replacement=data.get("replacement", "[REDACTED]"),
             redact_tool_input=data.get("redact_tool_input", True),
             redact_tool_response=data.get("redact_tool_response", True),
-            redact_reasoning=data.get("redact_reasoning", True),
+            redact_context=data.get(
+                "redact_context", data.get("redact_reasoning", True)
+            ),
         )
 
     @classmethod
@@ -347,7 +349,7 @@ def build_default_redaction_dict() -> dict:
         "replacement": "[REDACTED]",
         "redact_tool_input": True,
         "redact_tool_response": True,
-        "redact_reasoning": True,
+        "redact_context": True,
         "patterns": patterns,
         "sensitive_keys": sorted(_DEFAULT_SENSITIVE_KEYS),
     }
