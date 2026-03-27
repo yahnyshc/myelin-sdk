@@ -328,10 +328,10 @@ class TestFinish:
         finally:
             os.unlink(transcript.name)
 
-    def test_finish_no_trailing_context_no_capture(
+    def test_finish_no_trailing_context_still_sends_finish(
         self, cc_session_id, project_dir, capture_server
     ):
-        """When there is no trailing context, finish does not send a capture."""
+        """Finish always sends a capture (to trigger evaluation), even without trailing context."""
         sf = session_file(project_dir, cc_session_id)
         sf.parent.mkdir(parents=True, exist_ok=True)
         sf.write_text("ses_notrail\n0")
@@ -346,7 +346,11 @@ class TestFinish:
         )
         assert result.returncode == 0
         assert not sf.exists()
-        assert len(CaptureHandler.captured) == 0
+        assert len(CaptureHandler.captured) == 1
+        body = CaptureHandler.captured[0]
+        assert body["tool_name"] == "finish"
+        assert body["session_id"] == "ses_notrail"
+        assert "context" not in body
 
 
 class TestSkipMyelinTools:
