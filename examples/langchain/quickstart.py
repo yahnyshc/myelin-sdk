@@ -42,11 +42,14 @@ def send_reply(ticket_id: str, message: str) -> str:
 
 
 async def main():
-    async with MyelinSession.start("handle a password reset support ticket") as session:
-        print(f"Recall: session={session.session_id}, matched={session.matched}")
-        if session.matched:
-            print(f"  Workflow: {session.workflow.description}")
-            print(f"  Steps: {session.workflow.total_steps}")
+    async with MyelinSession.create(
+        "handle a password reset support ticket"
+    ) as session:
+        print(f"Session started: {session.session_id}")
+        if session.matched_workflow_id:
+            print(f"  Matched workflow: {session.matched_workflow_id}")
+        else:
+            print("  No matching workflow — recording freestyle session")
 
         # Create callback handler — this is the only integration point
         handler = session.langchain_handler()
@@ -57,33 +60,43 @@ async def main():
 
         from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
-        messages = []
-
-        # If Myelin found a matching workflow, give the agent its guidance
-        if session.matched:
-            messages.append(SystemMessage(content=session.workflow.overview))
-
-        messages.append(
+        messages = [
+            SystemMessage(
+                content=(
+                    "You are a support agent. Use the available tools "
+                    "to resolve the customer's issue."
+                )
+            ),
             HumanMessage(
                 content=(
                     "Ticket #1234: Customer alice@example.com says they can't log in. "
                     "Please reset their password and let them know."
                 )
-            )
-        )
+            ),
+        ]
 
         # Agent loop — invoke until no more tool calls
         while True:
-            response = await agent.ainvoke(messages, config={"callbacks": [handler]})
+            response = await agent.ainvoke(
+                messages, config={"callbacks": [handler]}
+            )
             messages.append(response)
 
             if not response.tool_calls:
                 break
 
             for tc in response.tool_calls:
-                tool_fn = {"lookup_user": lookup_user, "reset_password": reset_password, "send_reply": send_reply}[tc["name"]]
-                result = await tool_fn.ainvoke(tc["args"], config={"callbacks": [handler]})
-                messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+                tool_fn = {
+                    "lookup_user": lookup_user,
+                    "reset_password": reset_password,
+                    "send_reply": send_reply,
+                }[tc["name"]]
+                result = await tool_fn.ainvoke(
+                    tc["args"], config={"callbacks": [handler]}
+                )
+                messages.append(
+                    ToolMessage(content=str(result), tool_call_id=tc["id"])
+                )
 
         print(f"Agent response: {response.content}")
     # Finish happens automatically when the context manager exits

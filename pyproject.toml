@@ -30,7 +30,7 @@ myelin-capture = "myelin_sdk.claude_code.capture:main"
 myelin-sync = "myelin_sdk.sync:main"
 
 [project.urls]
-Homepage = "https://myelin.sh"
+Homepage = "https://myelin.vercel.app"
 Repository = "https://github.com/yahnyshc/myelin-sdk"
 Issues = "https://github.com/yahnyshc/myelin-sdk/issues"
 

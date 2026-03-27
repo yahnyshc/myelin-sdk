@@ -1,8 +1,8 @@
-"""Following a matched workflow with step-by-step hints.
+"""Following a matched workflow with Myelin.
 
-When Myelin finds a matching workflow (HIT), the agent receives
-an overview and skeleton. It can request detailed hints for each
-step, adapting the proven procedure to the current context.
+When Myelin finds a matching workflow (HIT), the agent receives a
+matched_workflow_id. Myelin records the session and evaluates whether
+the agent's approach was successful.
 
 Usage:
     export MYELIN_API_KEY=my_...
@@ -52,7 +52,9 @@ async def run_agent(llm, messages: list, handler) -> str:
     agent = llm.bind_tools(TOOLS)
 
     while True:
-        response = await agent.ainvoke(messages, config={"callbacks": [handler]})
+        response = await agent.ainvoke(
+            messages, config={"callbacks": [handler]}
+        )
         messages.append(response)
 
         if not response.tool_calls:
@@ -62,7 +64,9 @@ async def run_agent(llm, messages: list, handler) -> str:
             result = await TOOL_MAP[tc["name"]].ainvoke(tc["args"])
             from langchain_core.messages import ToolMessage
 
-            messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+            messages.append(
+                ToolMessage(content=str(result), tool_call_id=tc["id"])
+            )
 
 
 async def main():
@@ -71,33 +75,33 @@ async def main():
         "Please apply a $49 credit and let them know."
     )
 
-    async with MyelinSession.start("handle a billing credit request") as session:
+    async with MyelinSession.create(
+        "handle a billing credit request"
+    ) as session:
         handler = session.langchain_handler()
         llm = ChatOpenAI(model="gpt-4o-mini")
 
-        if session.matched:
-            wf = session.workflow
-            print(f"Matched workflow: {wf.description}")
-            print(f"Success-proven procedure with {wf.total_steps} steps\n")
-
-            system_prompt = await session.build_system_prompt()
-            messages = [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=ticket_msg),
-            ]
+        if session.matched_workflow_id:
+            print(
+                f"Matched workflow: {session.matched_workflow_id}"
+            )
+            print("Following a proven procedure for this task\n")
         else:
             print("No matching workflow found — working freestyle")
-            print("Myelin will record this session and extract a workflow if successful\n")
+            print(
+                "Myelin will record this session and extract a "
+                "workflow if successful\n"
+            )
 
-            messages = [
-                SystemMessage(
-                    content=(
-                        "You are a billing support agent. Use the available tools "
-                        "to resolve the customer's issue."
-                    )
-                ),
-                HumanMessage(content=ticket_msg),
-            ]
+        messages = [
+            SystemMessage(
+                content=(
+                    "You are a billing support agent. Use the available "
+                    "tools to resolve the customer's issue."
+                )
+            ),
+            HumanMessage(content=ticket_msg),
+        ]
 
         response = await run_agent(llm, messages, handler)
         print(f"Agent: {response}\n")

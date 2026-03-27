@@ -42,7 +42,10 @@ def web_search(query: str) -> str:
 @tool
 def read_url(url: str) -> str:
     """Read the contents of a URL."""
-    return f"Content from {url}: This is a mock response. Replace with real HTTP fetch."
+    return (
+        f"Content from {url}: This is a mock response. "
+        "Replace with real HTTP fetch."
+    )
 
 
 @tool
@@ -55,7 +58,9 @@ def take_note(content: str) -> str:
 @tool
 def write_report(title: str, sections: str) -> str:
     """Write the final research report. Sections should be newline-separated."""
-    notes_text = "\n".join(f"- {n}" for n in _notes) if _notes else "(no notes)"
+    notes_text = (
+        "\n".join(f"- {n}" for n in _notes) if _notes else "(no notes)"
+    )
     return (
         f"# {title}\n\n"
         f"## Research Notes\n{notes_text}\n\n"
@@ -64,14 +69,21 @@ def write_report(title: str, sections: str) -> str:
 
 
 async def main():
-    task = "research how procedural memory differs from semantic memory in AI agents"
+    task = (
+        "research how procedural memory differs from "
+        "semantic memory in AI agents"
+    )
 
-    async with MyelinSession.start(task) as session:
-        if session.matched:
-            print(f"Following workflow: {session.workflow.description}")
-            print(f"Steps: {session.workflow.skeleton}\n")
+    async with MyelinSession.create(task) as session:
+        if session.matched_workflow_id:
+            print(
+                f"Following workflow: {session.matched_workflow_id}"
+            )
         else:
-            print("No existing workflow — pioneering a new research approach\n")
+            print(
+                "No existing workflow — pioneering a new "
+                "research approach\n"
+            )
 
         handler = session.langchain_handler()
         llm = ChatOpenAI(model="gpt-4o-mini")
@@ -94,8 +106,8 @@ async def main():
         if result.workflow_id:
             print(f"Workflow extracted: {result.workflow_id}")
         print(
-            "\nNext time this task is run, Myelin may return a proven workflow "
-            "so the agent follows a structured research approach."
+            "\nNext time this task is run, Myelin may return a proven "
+            "workflow so the agent follows a structured research approach."
         )
 
 
