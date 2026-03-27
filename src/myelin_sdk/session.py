@@ -26,6 +26,7 @@ class MyelinSession:
         self._active = True
         self._owns_client = _owns_client
         self._init_coro = None
+        self._handler = None
 
     @classmethod
     def create(
@@ -97,6 +98,8 @@ class MyelinSession:
     async def finish(self) -> FinishResponse:
         if not self._active:
             raise RuntimeError("Session already finished")
+        if self._handler is not None:
+            await self._handler.flush()
         result = await self._client.finish(self.session_id)
         self._active = False
         return result
@@ -110,13 +113,15 @@ class MyelinSession:
     ):
         from .integrations.langchain.handler import MyelinCallbackHandler
 
-        return MyelinCallbackHandler(
+        handler = MyelinCallbackHandler(
             client=self._client,
             session_id=self.session_id,
             hide_inputs=hide_inputs,
             hide_outputs=hide_outputs,
             redaction=redaction,
         )
+        self._handler = handler
+        return handler
 
     async def __aenter__(self):
         if self._init_coro is not None:

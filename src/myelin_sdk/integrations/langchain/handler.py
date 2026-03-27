@@ -32,6 +32,9 @@ _SKIP_TOOLS: frozenset[str] = frozenset({
     "finish",
 })
 
+# Maximum context length for finish flush (same as capture.py)
+_MAX_FINISH_CONTEXT = 16_000
+
 
 class MyelinCallbackHandler(AsyncCallbackHandler):
     def __init__(
@@ -177,3 +180,45 @@ class MyelinCallbackHandler(AsyncCallbackHandler):
             logger.warning(
                 "Failed to capture tool call %s", pending["name"], exc_info=True
             )
+
+    async def flush(self) -> None:
+        """Capture any remaining LLM context as a 'finish' tool call.
+
+        Called automatically by MyelinSession.finish() so the evaluator
+        can see the agent's final response. Any unconsumed LLM context
+        (i.e. reasoning/text that wasn't followed by a tool call) is
+        sent as the context of a synthetic "finish" tool call.
+        """
+        session_id = self._effective_session_id
+        if not session_id:
+            return
+
+        # Collect all unconsumed LLM context
+        remaining = list(self._context.values())
+        self._context.clear()
+
+        if not remaining:
+            return
+
+        context = "\n".join(remaining)
+        if len(context) > _MAX_FINISH_CONTEXT:
+            context = context[:_MAX_FINISH_CONTEXT] + "... [truncated]"
+
+        if (
+            self._redaction
+            and self._redaction.enabled
+            and self._redaction.redact_context
+        ):
+            context = redact_string(context, self._redaction)
+
+        try:
+            await self._client.capture(
+                session_id=session_id,
+                tool_name="finish",
+                tool_input={},
+                tool_response="",
+                context=context,
+                client_ts=time.time(),
+            )
+        except Exception:
+            logger.warning("Failed to capture finish context", exc_info=True)
