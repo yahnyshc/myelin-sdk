@@ -23,12 +23,6 @@ HOOK_PATH = (
     / "capture.py"
 )
 
-_COMMON_ENV = {
-    "PATH": os.environ.get("PATH", ""),
-    "MYELIN_API_KEY": "test-key",
-}
-
-
 @pytest.fixture
 def project_dir():
     """Create a temporary directory to act as CLAUDE_PROJECT_DIR."""
@@ -40,7 +34,13 @@ _DEFAULT_MYELIN_URL = "http://127.0.0.1:19876"
 
 
 def _base_env(project_dir: str) -> dict:
-    return {**_COMMON_ENV, "MYELIN_URL": _DEFAULT_MYELIN_URL, "CLAUDE_PROJECT_DIR": project_dir}
+    env = os.environ.copy()
+    env.update({
+        "MYELIN_API_KEY": "test-key",
+        "MYELIN_URL": _DEFAULT_MYELIN_URL,
+        "CLAUDE_PROJECT_DIR": project_dir,
+    })
+    return env
 
 
 def run_hook(
@@ -212,7 +212,7 @@ class TestStart:
 
     def test_no_project_dir_skips_session_file(self, cc_session_id):
         """Without CLAUDE_PROJECT_DIR, start succeeds but no file is written."""
-        env = {**_COMMON_ENV, "MYELIN_URL": _DEFAULT_MYELIN_URL, "CLAUDE_PROJECT_DIR": ""}
+        env = _base_env("")
         result = subprocess.run(
             [sys.executable, str(HOOK_PATH)],
             input=json.dumps({
@@ -1007,7 +1007,7 @@ class TestMcpJsonLoading:
                     "tool_response": {"session_id": "ses_env"},
                 },
                 tmpdir,
-                # _COMMON_ENV already sets MYELIN_URL/MYELIN_API_KEY
+                # _base_env already sets MYELIN_URL/MYELIN_API_KEY
             )
             assert result.returncode == 0
 

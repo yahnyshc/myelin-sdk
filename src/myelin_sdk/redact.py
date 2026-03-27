@@ -246,7 +246,7 @@ class RedactionConfig:
     @classmethod
     def from_file(cls, path: str) -> "RedactionConfig":
         """Load config from a JSON file."""
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return cls.from_dict(json.load(f))
 
     @classmethod

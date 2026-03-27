@@ -52,6 +52,8 @@ Add this to `.claude/settings.json`:
 }
 ```
 
+> **Tip:** If `myelin-capture` is not on your PATH, use `python -m myelin_sdk.claude_code` as the command instead.
+
 ### 4. Update `.gitignore`
 
 Add `.mcp.json` to your `.gitignore` (it contains your API key).

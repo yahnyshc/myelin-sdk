@@ -77,7 +77,7 @@ def _load_env() -> None:
 
     mcp_path = os.path.join(project_dir, ".mcp.json")
     try:
-        with open(mcp_path) as f:
+        with open(mcp_path, encoding="utf-8") as f:
             config = json.loads(f.read())
     except (FileNotFoundError, json.JSONDecodeError):
         return

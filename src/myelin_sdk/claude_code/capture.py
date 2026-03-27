@@ -76,7 +76,7 @@ def _clear_all_session_files(sessions_dir: str) -> None:
 def _read_session_file(path: str) -> tuple[str, int] | None:
     """Read session file. Returns (session_id, transcript_offset) or None."""
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             lines = f.read().strip().split("\n")
             sid = lines[0].strip()
             offset = int(lines[1].strip()) if len(lines) > 1 else 0
@@ -88,7 +88,7 @@ def _read_session_file(path: str) -> tuple[str, int] | None:
 def _write_session_file(path: str, sid: str, offset: int) -> None:
     """Write session file with session_id and transcript offset."""
     try:
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(f"{sid}\n{offset}")
     except OSError:
         pass
@@ -145,7 +145,7 @@ def extract_context_from_transcript(
     Returns (context_text, new_offset). context_text is None if no content found.
     """
     try:
-        with open(transcript_path, "r") as f:
+        with open(transcript_path, "r", encoding="utf-8") as f:
             all_lines = f.readlines()
     except (OSError, IOError):
         return None, offset
@@ -331,7 +331,7 @@ def _load_env() -> None:
 
     mcp_path = os.path.join(project_dir, ".mcp.json")
     try:
-        with open(mcp_path) as f:
+        with open(mcp_path, encoding="utf-8") as f:
             config = json.loads(f.read())
     except (FileNotFoundError, json.JSONDecodeError):
         return
@@ -423,7 +423,7 @@ def main() -> int:
             transcript_path = data.get("transcript_path") or ""
             if transcript_path:
                 try:
-                    with open(transcript_path, "r") as tf:
+                    with open(transcript_path, "r", encoding="utf-8") as tf:
                         transcript_offset = sum(1 for _ in tf)
                 except (OSError, IOError):
                     pass
