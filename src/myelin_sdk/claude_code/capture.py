@@ -453,16 +453,22 @@ def main() -> int:
                     ):
                         context = redact_string(context, redaction_cfg)
 
+            # Always send the finish signal so the server can enqueue
+            # the evaluation job. Context is included when available.
+            finish_payload: dict = {
+                "session_id": myelin_sid,
+                "tool_name": "finish",
+                "tool_input": {},
+                "tool_response": "",
+                "client_ts": time.time(),
+            }
             if context:
-                _post_capture(myelin_url, myelin_key, {
-                    "session_id": myelin_sid,
-                    "tool_name": "finish",
-                    "tool_input": {},
-                    "tool_response": "",
-                    "context": context,
-                    "client_ts": time.time(),
-                })
-                debug("captured trailing context with finish")
+                finish_payload["context"] = context
+            _post_capture(myelin_url, myelin_key, finish_payload)
+            debug(
+                "sent finish signal"
+                + (f" with context ({len(context)} chars)" if context else "")
+            )
 
         # Clean up session file
         if session_file:
